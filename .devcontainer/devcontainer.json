@@ -1,0 +1,35 @@
+{
+  "name": "LinkedIn CRM (Next.js 16 + Claude Code)",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "mounts": [
+    "source=claude-code-config,target=/home/node/.claude,type=volume"
+  ],
+  "forwardPorts": [3000, 3001],
+  "portsAttributes": {
+    "3000": { "label": "Next.js dev", "onAutoForward": "openPreview" },
+    "3001": { "label": "Next.js dev (alt port)" }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "node",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "editor.formatOnSave": false,
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  },
+  "containerEnv": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  }
+}

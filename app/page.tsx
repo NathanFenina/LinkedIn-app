@@ -1,65 +1,308 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Contact, ContactStatus, STATUS_LABELS } from '@/types'
+import { ConversationTable } from '@/components/ConversationTable'
+import { PageHeader } from '@/components/PageHeader'
+import { Search, Sparkles, Download, RefreshCw } from 'lucide-react'
+
+const STATUS_FILTERS: { value: ContactStatus | 'all'; label: string }[] = [
+  { value: 'all', label: 'Tous' },
+  { value: 'to_contact', label: STATUS_LABELS.to_contact },
+  { value: 'in_progress', label: STATUS_LABELS.in_progress },
+  { value: 'prospect', label: STATUS_LABELS.prospect },
+  { value: 'client', label: STATUS_LABELS.client },
+  { value: 'treated', label: STATUS_LABELS.treated },
+  { value: 'do_not_contact', label: STATUS_LABELS.do_not_contact },
+]
+
+export default function ConversationsPage() {
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState<ContactStatus | 'all'>('all')
+  const [search, setSearch] = useState('')
+  const [view, setView] = useState<'all' | 'waiting' | 'followup'>('all')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState<string | null>(null)
+  const [actionMsg, setActionMsg] = useState('')
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/contacts?tab=conversations')
+      setContacts(await res.json())
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const handleUpdate = (id: string, updates: Partial<Contact>) => {
+    setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
+  }
+
+  const filtered = useMemo(() => {
+    return contacts
+      .filter((c) => filter === 'all' || c.status === filter)
+      .filter(
+        (c) =>
+          !search ||
+          c.name.toLowerCase().includes(search.toLowerCase()) ||
+          c.job_title?.toLowerCase().includes(search.toLowerCase())
+      )
+      .filter((c) => {
+        if (view === 'waiting') return !c.is_sender_last
+        if (view === 'followup') return c.is_sender_last
+        return true
+      })
+  }, [contacts, filter, search, view])
+
+  const waitingCount = contacts.filter((c) => !c.is_sender_last).length
+  const followupCount = contacts.filter((c) => c.is_sender_last).length
+  const unscoredCount = contacts.filter((c) => !c.score).length
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = (ids: string[]) => {
+    setSelectedIds((prev) => {
+      const allSelected = ids.every((id) => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) ids.forEach((id) => next.delete(id))
+      else ids.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const scoreBatch = async () => {
+    const ids = Array.from(selectedIds)
+    const hasSelection = ids.length > 0
+    const label = hasSelection
+      ? `Scorer les ${ids.length} conversations sélectionnées ?`
+      : `Scorer les ${unscoredCount} conversations non scorées ? (peut prendre plusieurs minutes)`
+    if (!confirm(label)) return
+
+    setBusy('score')
+    setActionMsg('Scoring IA en cours…')
+    try {
+      const res = await fetch('/api/contacts/score-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(hasSelection ? { ids } : { onlyUnscored: true }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setActionMsg(`${data.scored}/${data.total} scorés · ${data.failed} échecs`)
+      await fetchData()
+    } catch (err) {
+      setActionMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const loadMoreChats = async () => {
+    const want = 500
+    if (!confirm(`Charger ${want} conversations de plus ? (peut prendre plusieurs minutes, reste sur la page)`)) return
+
+    setBusy('load')
+    let cursor: string | undefined = undefined
+    let totalSynced = 0
+    let batches = 0
+
+    try {
+      while (totalSynced < want) {
+        const pageSize = Math.min(50, want - totalSynced)
+        setActionMsg(`Batch ${batches + 1} · ${totalSynced}/${want} synchronisés…`)
+        const resp: Response = await fetch('/api/sync/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pageSize, messagesPerChat: 15, cursor }),
+        })
+        const data: { error?: string; synced?: number; total?: number; done?: boolean; nextCursor?: string | null; errors?: string[] } = await resp.json()
+        if (data.errors && data.errors.length > 0) {
+          console.error('Sync batch errors:', data.errors)
+        }
+        if (data.error) throw new Error(data.error)
+        totalSynced += data.synced || 0
+        batches++
+        await fetchData()
+        // stuck detection: 3 batches sans rien de nouveau + erreurs = abort
+        if ((data.synced || 0) === 0 && (data.errors?.length || 0) > 0) {
+          throw new Error(`Lot ${batches} bloqué: ${data.errors![0]}`)
+        }
+        if (data.done || !data.nextCursor) break
+        cursor = data.nextCursor ?? undefined
+      }
+      setActionMsg(`Terminé · ${totalSynced} conversations synchronisées (${batches} lots)`)
+      await fetchData()
+    } catch (err) {
+      setActionMsg(`Erreur après ${totalSynced} synchronisés: ${String(err)}`)
+      await fetchData()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const refreshSelected = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+
+    setBusy('refresh')
+    setActionMsg(`Rafraîchissement de ${ids.length} conversations…`)
+    try {
+      const res = await fetch('/api/sync/conversations/selective', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_ids: ids }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setActionMsg(`${data.synced}/${data.total} rafraîchis`)
+      await fetchData()
+    } catch (err) {
+      setActionMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <>
+      <PageHeader
+        title="Conversations"
+        subtitle={`${contacts.length} au total · ${waitingCount} en attente de ta réponse · ${followupCount} à relancer · ${unscoredCount} non scorées`}
+        onSynced={fetchData}
+      />
+
+      <div className="max-w-[1400px] mx-auto px-6 py-4 space-y-3">
+        {/* Bulk toolbar */}
+        <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap text-xs">
+          <button
+            onClick={scoreBatch}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50 font-medium"
+            title={selectedIds.size > 0 ? `Scorer les ${selectedIds.size} sélectionnées` : `Scorer les ${unscoredCount} non scorées`}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+            <Sparkles className={`w-3.5 h-3.5 ${busy === 'score' ? 'animate-pulse' : ''}`} />
+            {selectedIds.size > 0 ? `Scorer sélection (${selectedIds.size})` : `Scorer non scorées (${unscoredCount})`}
+          </button>
+
+          <button
+            onClick={loadMoreChats}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-medium"
+          >
+            <Download className={`w-3.5 h-3.5 ${busy === 'load' ? 'animate-pulse' : ''}`} />
+            Charger +500 conversations
+          </button>
+
+          <button
+            onClick={refreshSelected}
+            disabled={busy !== null || selectedIds.size === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-40 font-medium"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${busy === 'refresh' ? 'animate-spin' : ''}`} />
+            Rafraîchir sélection ({selectedIds.size})
+          </button>
+
+          {selectedIds.size > 0 && (
+            <button
+              onClick={clearSelection}
+              className="text-gray-500 hover:text-gray-800 underline"
+            >
+              Désélectionner
+            </button>
+          )}
+
+          {actionMsg && <span className="text-gray-500 ml-auto">{actionMsg}</span>}
+        </div>
+
+        {/* View toggles */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setView('all')}
+            className={`text-xs px-3 py-1.5 rounded-full border ${
+              view === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            Tous ({contacts.length})
+          </button>
+          <button
+            onClick={() => setView('waiting')}
+            className={`text-xs px-3 py-1.5 rounded-full border ${
+              view === 'waiting' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            🔵 À répondre ({waitingCount})
+          </button>
+          <button
+            onClick={() => setView('followup')}
+            className={`text-xs px-3 py-1.5 rounded-full border ${
+              view === 'followup' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            🔄 À relancer ({followupCount})
+          </button>
+        </div>
+
+        {/* Search + status filters */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Rechercher..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="border border-gray-200 rounded-lg pl-7 pr-3 py-1.5 text-xs w-56 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setFilter(f.value)}
+                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                  filter === f.value
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </main>
-    </div>
-  );
+
+        {/* Table */}
+        {loading ? (
+          <div className="text-center py-12 text-gray-400 text-sm">Chargement…</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 text-sm bg-white rounded-lg border border-gray-200">
+            Aucune conversation. Synchronise d&apos;abord.
+          </div>
+        ) : (
+          <ConversationTable
+            contacts={filtered}
+            onUpdate={handleUpdate}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+          />
+        )}
+      </div>
+    </>
+  )
 }

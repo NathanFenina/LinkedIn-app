@@ -1,0 +1,156 @@
+import { getServerSupabase } from '@/lib/supabase'
+import { getPost, getPostComments, startNewChat, extractPostIdFromUrl } from '@/lib/unipile'
+import { getActiveAccountId } from '@/lib/account'
+
+export const maxDuration = 300
+
+async function resolveAccountIdForCampaign(
+  db: ReturnType<typeof getServerSupabase>,
+  linkedin_account_id: string | null
+): Promise<string> {
+  if (linkedin_account_id) {
+    const { data } = await db
+      .from('linkedin_accounts')
+      .select('unipile_account_id')
+      .eq('id', linkedin_account_id)
+      .maybeSingle()
+    if (data?.unipile_account_id) return data.unipile_account_id
+  }
+  return getActiveAccountId()
+}
+
+export async function POST(
+  request: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params
+  const { dry_run = false } = await request.json().catch(() => ({}))
+
+  try {
+    const db = getServerSupabase()
+    const { data: campaign, error } = await db
+      .from('lead_magnet_campaigns')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (error || !campaign) {
+      return Response.json({ error: 'Campagne non trouvée' }, { status: 404 })
+    }
+
+    const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
+
+    let socialId = campaign.social_id
+    if (!socialId) {
+      const extracted = extractPostIdFromUrl(campaign.post_url)
+      if (extracted) {
+        try {
+          const post = await getPost(ACCOUNT_ID, extracted)
+          socialId = post.social_id || extracted
+        } catch {
+          socialId = extracted
+        }
+      }
+      if (socialId) {
+        await db.from('lead_magnet_campaigns').update({ social_id: socialId }).eq('id', id)
+      }
+    }
+    if (!socialId) {
+      return Response.json({ error: 'Impossible d\'extraire le social_id du post' }, { status: 400 })
+    }
+
+    // Already-processed commenters (anti-doublon)
+    const { data: alreadySent } = await db
+      .from('lead_magnet_sends')
+      .select('commenter_provider_id')
+      .eq('campaign_id', id)
+    const sentSet = new Set((alreadySent || []).map((s) => s.commenter_provider_id))
+
+    // Walk all comments
+    let cursor: string | undefined = undefined
+    let commentsScanned = 0
+    let triggeredMatches = 0
+    let messagesSent = 0
+    const errors: string[] = []
+    const previewSends: Array<{ name: string | null; comment: string | null }> = []
+
+    const triggerKw = campaign.trigger_keyword?.toLowerCase().trim() || ''
+
+    // First pass: count comments to enforce min_comments threshold.
+    if (campaign.min_comments && campaign.min_comments > 0) {
+      let count = 0
+      let countCursor: string | undefined = undefined
+      while (true) {
+        const { items, cursor: next } = await getPostComments(ACCOUNT_ID, socialId, countCursor, 100)
+        count += items.length
+        if (count >= campaign.min_comments || !next || !items.length) break
+        countCursor = next
+      }
+      if (count < campaign.min_comments) {
+        return Response.json({
+          dry_run,
+          comments_scanned: count,
+          matches: 0,
+          messages_sent: 0,
+          skipped_reason: `Seulement ${count} commentaires (seuil: ${campaign.min_comments})`,
+        })
+      }
+    }
+
+    while (true) {
+      const { items, cursor: next } = await getPostComments(ACCOUNT_ID, socialId, cursor, 100)
+      if (!items.length) break
+      for (const c of items) {
+        commentsScanned++
+        const author = c.author || {}
+        const providerId = author.provider_id || author.public_identifier
+        if (!providerId) continue
+        if (sentSet.has(providerId)) continue
+
+        const matchesTrigger = !triggerKw || (c.text || '').toLowerCase().includes(triggerKw)
+        if (!matchesTrigger) continue
+        triggeredMatches++
+
+        const personalised = campaign.message_template
+          .replace(/\{name\}/gi, (author.name || '').split(' ')[0] || '')
+          .replace(/\{magnet_url\}/gi, campaign.magnet_url || '')
+
+        if (dry_run) {
+          previewSends.push({ name: author.name || null, comment: c.text || null })
+          continue
+        }
+
+        try {
+          await startNewChat(ACCOUNT_ID, providerId, personalised)
+          await db.from('lead_magnet_sends').insert({
+            campaign_id: id,
+            commenter_provider_id: providerId,
+            commenter_name: author.name || null,
+            commenter_profile_url: author.profile_url || null,
+            comment_text: c.text || null,
+            message_sent: personalised,
+          })
+          messagesSent++
+        } catch (err) {
+          errors.push(`${author.name || providerId}: ${String(err)}`)
+        }
+      }
+      if (!next) break
+      cursor = next
+    }
+
+    if (!dry_run) {
+      await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', id)
+    }
+
+    return Response.json({
+      dry_run,
+      comments_scanned: commentsScanned,
+      matches: triggeredMatches,
+      messages_sent: messagesSent,
+      preview: dry_run ? previewSends.slice(0, 20) : undefined,
+      errors: errors.slice(0, 5),
+    })
+  } catch (err) {
+    return Response.json({ error: String(err) }, { status: 500 })
+  }
+}
