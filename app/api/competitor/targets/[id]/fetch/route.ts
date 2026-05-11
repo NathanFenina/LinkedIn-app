@@ -63,6 +63,8 @@ export async function POST(
     let cursor: string | undefined = undefined
     let scanned = 0
     let stored = 0
+    let skippedNoId = 0
+    let sampleComment: unknown = null
     const errors: string[] = []
 
     while (true) {
@@ -70,17 +72,28 @@ export async function POST(
       if (!items.length) break
       for (const c of items) {
         scanned++
-        const author = c.author || {}
-        const providerId = author.provider_id || author.public_identifier
-        if (!providerId) continue
+        if (!sampleComment) sampleComment = c
+        // Unipile field names vary by provider version; try several.
+        const author = (c.author || {}) as Record<string, unknown>
+        const providerId =
+          (author.provider_id as string | undefined) ||
+          (author.public_identifier as string | undefined) ||
+          (author.id as string | undefined) ||
+          ((c as Record<string, unknown>).provider_id as string | undefined) ||
+          ((c as Record<string, unknown>).author_id as string | undefined) ||
+          null
+        if (!providerId) {
+          skippedNoId++
+          continue
+        }
 
         const { error: upErr } = await db.from('competitor_leads').upsert(
           {
             target_id: id,
             commenter_provider_id: providerId,
-            commenter_name: author.name || null,
-            commenter_headline: author.headline || null,
-            commenter_profile_url: author.profile_url || null,
+            commenter_name: (author.name as string | undefined) || null,
+            commenter_headline: (author.headline as string | undefined) || null,
+            commenter_profile_url: (author.profile_url as string | undefined) || null,
             comment_text: c.text || null,
             commented_at: c.date || null,
             status: 'new',
@@ -102,6 +115,8 @@ export async function POST(
     return Response.json({
       scanned,
       stored,
+      skipped_no_id: skippedNoId,
+      sample: sampleComment,
       errors: errors.slice(0, 5),
     })
   } catch (err) {

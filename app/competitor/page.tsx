@@ -89,7 +89,15 @@ export default function CompetitorPage() {
       const res = await fetch(`/api/competitor/targets/${targetId}/fetch`, { method: 'POST' })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setMsg(`${data.stored} nouveaux leads · ${data.scanned} commentaires scannés`)
+      let msgText = `${data.stored} nouveaux leads · ${data.scanned} commentaires scannés`
+      if (data.stored === 0 && data.scanned > 0) {
+        msgText += ` · ${data.skipped_no_id || 0} skipped (pas d'ID)`
+        if (data.sample) {
+          console.warn('Sample raw comment from Unipile (0 stored):', data.sample)
+          msgText += ' — voir console pour le format brut'
+        }
+      }
+      setMsg(msgText)
       fetchAll()
     } catch (err) {
       setMsg(`Erreur: ${String(err)}`)
