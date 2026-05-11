@@ -9,7 +9,7 @@
 // Designed to fit on Vercel Hobby (single cron entry, all campaigns in one pass).
 
 import { getServerSupabase } from '@/lib/supabase'
-import { getPost, getPostComments, startNewChat, extractPostIdFromUrl } from '@/lib/unipile'
+import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
 
 export const maxDuration = 300
 
@@ -125,15 +125,15 @@ async function runJob() {
         )
         if (!items.length) break
         for (const c of items) {
-          const author = c.author || {}
-          const providerId = author.provider_id || author.public_identifier
+          const n = normalizeComment(c)
+          const providerId = n.commenter_provider_id
           if (!providerId || sentSet.has(providerId)) continue
 
-          const matches = !triggerKw || (c.text || '').toLowerCase().includes(triggerKw)
+          const matches = !triggerKw || (n.comment_text || '').toLowerCase().includes(triggerKw)
           if (!matches) continue
 
           const personalised = campaign.message_template
-            .replace(/\{name\}/gi, (author.name || '').split(' ')[0] || '')
+            .replace(/\{name\}/gi, (n.commenter_name || '').split(' ')[0] || '')
             .replace(/\{magnet_url\}/gi, campaign.magnet_url || '')
 
           try {
@@ -141,14 +141,14 @@ async function runJob() {
             await db.from('lead_magnet_sends').insert({
               campaign_id: campaign.id,
               commenter_provider_id: providerId,
-              commenter_name: author.name || null,
-              commenter_profile_url: author.profile_url || null,
-              comment_text: c.text || null,
+              commenter_name: n.commenter_name,
+              commenter_profile_url: n.commenter_profile_url,
+              comment_text: n.comment_text,
               message_sent: personalised,
             })
             sent++
           } catch (err) {
-            errors.push(`${campaign.name} → ${author.name}: ${String(err)}`)
+            errors.push(`${campaign.name} → ${n.commenter_name}: ${String(err)}`)
           }
         }
         if (!next) break

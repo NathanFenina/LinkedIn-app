@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { getPost, getPostComments, extractPostIdFromUrl } from '@/lib/unipile'
+import { getPost, getPostComments, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
 
 export const maxDuration = 300
@@ -73,16 +73,8 @@ export async function POST(
       for (const c of items) {
         scanned++
         if (!sampleComment) sampleComment = c
-        // Unipile field names vary by provider version; try several.
-        const author = (c.author || {}) as Record<string, unknown>
-        const providerId =
-          (author.provider_id as string | undefined) ||
-          (author.public_identifier as string | undefined) ||
-          (author.id as string | undefined) ||
-          ((c as Record<string, unknown>).provider_id as string | undefined) ||
-          ((c as Record<string, unknown>).author_id as string | undefined) ||
-          null
-        if (!providerId) {
+        const n = normalizeComment(c)
+        if (!n.commenter_provider_id) {
           skippedNoId++
           continue
         }
@@ -90,17 +82,12 @@ export async function POST(
         const { error: upErr } = await db.from('competitor_leads').upsert(
           {
             target_id: id,
-            commenter_provider_id: providerId,
-            commenter_name: (author.name as string | undefined) || null,
-            commenter_headline: (author.headline as string | undefined) || null,
-            commenter_profile_url: (author.profile_url as string | undefined) || null,
-            comment_text: c.text || null,
-            commented_at: c.date || null,
+            ...n,
             status: 'new',
           },
           { onConflict: 'target_id,commenter_provider_id', ignoreDuplicates: true }
         )
-        if (upErr) errors.push(`${providerId}: ${upErr.message}`)
+        if (upErr) errors.push(`${n.commenter_provider_id}: ${upErr.message}`)
         else stored++
       }
       if (!next) break

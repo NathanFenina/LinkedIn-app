@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { getPost, getPostComments, startNewChat, extractPostIdFromUrl } from '@/lib/unipile'
+import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
 
 export const maxDuration = 300
@@ -109,21 +109,21 @@ export async function POST(
       if (!items.length) break
       for (const c of items) {
         commentsScanned++
-        const author = c.author || {}
-        const providerId = author.provider_id || author.public_identifier
+        const n = normalizeComment(c)
+        const providerId = n.commenter_provider_id
         if (!providerId) continue
         if (sentSet.has(providerId)) continue
 
-        const matchesTrigger = !triggerKw || (c.text || '').toLowerCase().includes(triggerKw)
+        const matchesTrigger = !triggerKw || (n.comment_text || '').toLowerCase().includes(triggerKw)
         if (!matchesTrigger) continue
         triggeredMatches++
 
         const personalised = campaign.message_template
-          .replace(/\{name\}/gi, (author.name || '').split(' ')[0] || '')
+          .replace(/\{name\}/gi, (n.commenter_name || '').split(' ')[0] || '')
           .replace(/\{magnet_url\}/gi, campaign.magnet_url || '')
 
         if (dry_run) {
-          previewSends.push({ name: author.name || null, comment: c.text || null })
+          previewSends.push({ name: n.commenter_name, comment: n.comment_text })
           continue
         }
 
@@ -132,14 +132,14 @@ export async function POST(
           await db.from('lead_magnet_sends').insert({
             campaign_id: id,
             commenter_provider_id: providerId,
-            commenter_name: author.name || null,
-            commenter_profile_url: author.profile_url || null,
-            comment_text: c.text || null,
+            commenter_name: n.commenter_name,
+            commenter_profile_url: n.commenter_profile_url,
+            comment_text: n.comment_text,
             message_sent: personalised,
           })
           messagesSent++
         } catch (err) {
-          errors.push(`${author.name || providerId}: ${String(err)}`)
+          errors.push(`${n.commenter_name || providerId}: ${String(err)}`)
         }
       }
       if (!next) break

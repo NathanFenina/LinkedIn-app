@@ -177,12 +177,38 @@ export interface RawComment {
   id?: string
   text?: string
   date?: string
-  author?: {
-    name?: string
+  // Unipile's actual shape: `author` is a plain string (the display name) and
+  // the structured fields live in `author_details`.
+  author?: string
+  author_details?: {
+    id?: string
+    is_company?: boolean
     headline?: string
     profile_url?: string
+    network_distance?: string
+    profile_picture_url?: string
     public_identifier?: string
-    provider_id?: string
+  }
+}
+
+export interface NormalizedComment {
+  commenter_provider_id: string | null
+  commenter_name: string | null
+  commenter_headline: string | null
+  commenter_profile_url: string | null
+  comment_text: string | null
+  commented_at: string | null
+}
+
+export function normalizeComment(c: RawComment): NormalizedComment {
+  const a = c.author_details || {}
+  return {
+    commenter_provider_id: a.id || a.public_identifier || null,
+    commenter_name: typeof c.author === 'string' ? c.author : null,
+    commenter_headline: a.headline || null,
+    commenter_profile_url: a.profile_url || null,
+    comment_text: c.text || null,
+    commented_at: c.date || null,
   }
 }
 
