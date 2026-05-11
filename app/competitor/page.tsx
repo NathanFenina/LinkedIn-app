@@ -33,6 +33,8 @@ export default function CompetitorPage() {
   const [postUrl, setPostUrl] = useState('')
   const [jobKeywords, setJobKeywords] = useState('')
   const [createError, setCreateError] = useState('')
+  const [search, setSearch] = useState('')
+  const [savedToCrm, setSavedToCrm] = useState<Set<string>>(new Set())
 
   const fetchAll = useCallback(async () => {
     const t = await fetch('/api/competitor/targets').then((r) => r.json())
@@ -162,13 +164,38 @@ export default function CompetitorPage() {
   }
 
   const filteredLeads = useMemo(() => {
-    return leads.filter((l) => {
-      if (filter === 'top') return l.score >= 7
-      if (filter === 'qualified') return l.status === 'qualified'
-      if (filter === 'new') return l.status === 'new'
-      return true
-    })
-  }, [leads, filter])
+    const q = search.trim().toLowerCase()
+    return leads
+      .filter((l) => {
+        if (filter === 'top') return l.score >= 7
+        if (filter === 'qualified') return l.status === 'qualified'
+        if (filter === 'new') return l.status === 'new'
+        return true
+      })
+      .filter((l) => {
+        if (!q) return true
+        return (
+          (l.commenter_name || '').toLowerCase().includes(q) ||
+          (l.commenter_headline || '').toLowerCase().includes(q) ||
+          (l.comment_text || '').toLowerCase().includes(q)
+        )
+      })
+  }, [leads, filter, search])
+
+  const saveToCrm = async (leadId: string) => {
+    setBusy(`save-${leadId}`)
+    try {
+      const res = await fetch(`/api/competitor/leads/${leadId}/save-to-crm`, { method: 'POST' })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setSavedToCrm((prev) => new Set(prev).add(leadId))
+      setMsg(`Ajouté au CRM : ${data.contact?.name || 'OK'}`)
+    } catch (err) {
+      setMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const counts = useMemo(() => ({
     total: leads.length,
@@ -333,6 +360,16 @@ export default function CompetitorPage() {
                   {f === 'new' && `Nouveaux (${counts.new})`}
                 </button>
               ))}
+              <input
+                type="text"
+                placeholder="Filtrer (job title, nom, commentaire…)"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs w-64"
+              />
+              {search && (
+                <span className="text-[11px] text-gray-500">{filteredLeads.length} résultats</span>
+              )}
               {msg && <span className="text-gray-500 ml-auto">{msg}</span>}
             </div>
 
@@ -380,6 +417,18 @@ export default function CompetitorPage() {
                           )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => saveToCrm(l.id)}
+                            disabled={busy !== null || savedToCrm.has(l.id)}
+                            className={`text-[11px] px-2 py-1 rounded inline-flex items-center gap-1 disabled:opacity-60 ${
+                              savedToCrm.has(l.id)
+                                ? 'bg-green-100 text-green-700 cursor-default'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                            title="Ajouter ce lead à ta table Contacts (CRM)"
+                          >
+                            {savedToCrm.has(l.id) ? '✓ Dans le CRM' : '→ CRM'}
+                          </button>
                           {l.status === 'new' || l.status === 'qualified' ? (
                             <button
                               onClick={() => inviteLead(l.id)}
