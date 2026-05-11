@@ -215,27 +215,28 @@ export async function sendPostComment(accountId: string, socialId: string, text:
   })
 }
 
-// Extract LinkedIn post ID/social_id from a post URL.
-// Supported formats:
-//   - urn:li:activity:1234567890 (old activity URN)
-//   - linkedin.com/feed/update/urn:li:activity:1234567890
-//   - linkedin.com/posts/foo_bar-activity-1234567890-XXX
-//   - linkedin.com/posts/foo_bar-share-1234567890-XXX (modern share URL)
-//   - linkedin.com/posts/foo_bar-ugcPost-1234567890-XXX
-// We pick the LONGEST numeric run as a fallback in case none of the named
-// patterns matches but the URL still contains a 16+ digit ID.
+// Extract a LinkedIn post identifier from a post URL, in the exact format
+// Unipile's /posts/{post_id} endpoint expects. Per Unipile docs:
+//   - URLs containing "activity" → raw numeric ID  (e.g. "7332661864792854528")
+//   - URLs containing "share"    → full URN        (e.g. "urn:li:share:1234")
+//   - URLs containing "ugcPost"  → full URN        (e.g. "urn:li:ugcPost:1234")
+// Returns null if no recognizable pattern is found.
 export function extractPostIdFromUrl(url: string): string | null {
+  // Activity → raw numeric ID
   const activityMatch = url.match(/activity[-:]?(\d+)/i)
   if (activityMatch) return activityMatch[1]
+  // ugcPost → urn:li:ugcPost:ID
   const ugcMatch = url.match(/ugcPost[-:]?(\d+)/i)
-  if (ugcMatch) return ugcMatch[1]
+  if (ugcMatch) return `urn:li:ugcPost:${ugcMatch[1]}`
+  // share → urn:li:share:ID
   const shareMatch = url.match(/share[-:]?(\d+)/i)
-  if (shareMatch) return shareMatch[1]
-  // Last-resort fallback: pick the longest run of digits (LinkedIn post IDs
-  // are typically 19 digits, much longer than any other number in the URL).
+  if (shareMatch) return `urn:li:share:${shareMatch[1]}`
+  // Fallback: longest numeric run (LinkedIn post IDs are typically 19 digits).
+  // Default to share URN since modern "/posts/" URLs use the share format.
   const numbers = url.match(/\d{15,}/g)
   if (numbers && numbers.length) {
-    return numbers.sort((a, b) => b.length - a.length)[0]
+    const longest = numbers.sort((a, b) => b.length - a.length)[0]
+    return /\/posts\//i.test(url) ? `urn:li:share:${longest}` : longest
   }
   return null
 }
