@@ -20,6 +20,17 @@ function parseList(input: unknown): string[] | null {
   return null
 }
 
+function errorMessage(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string }
+    return [e.message, e.details, e.hint, e.code ? `(code ${e.code})` : '']
+      .filter(Boolean)
+      .join(' · ')
+  }
+  return String(err)
+}
+
 export async function GET() {
   try {
     const db = getServerSupabase()
@@ -30,7 +41,8 @@ export async function GET() {
     if (error) throw error
     return Response.json(data)
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    console.error('GET /api/competitor/targets failed:', err)
+    return Response.json({ error: errorMessage(err) }, { status: 500 })
   }
 }
 
@@ -61,6 +73,7 @@ export async function POST(request: Request) {
     if (error) throw error
     return Response.json(data)
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    console.error('POST /api/competitor/targets failed:', err)
+    return Response.json({ error: errorMessage(err) }, { status: 500 })
   }
 }
