@@ -32,7 +32,7 @@ export default function CompetitorPage() {
   const [label, setLabel] = useState('')
   const [postUrl, setPostUrl] = useState('')
   const [jobKeywords, setJobKeywords] = useState('')
-  const [sizeTags, setSizeTags] = useState('')
+  const [createError, setCreateError] = useState('')
 
   const fetchAll = useCallback(async () => {
     const t = await fetch('/api/competitor/targets').then((r) => r.json())
@@ -47,26 +47,32 @@ export default function CompetitorPage() {
   }, [fetchAll])
 
   const createTarget = async () => {
-    if (!postUrl.trim()) return
-    const res = await fetch('/api/competitor/targets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        label: label.trim() || null,
-        post_url: postUrl.trim(),
-        job_title_keywords: jobKeywords,
-        company_size_tags: sizeTags,
-      }),
-    })
-    if (res.ok) {
+    setCreateError('')
+    if (!postUrl.trim()) {
+      setCreateError("Renseigne d'abord l'URL du post LinkedIn.")
+      return
+    }
+    try {
+      const res = await fetch('/api/competitor/targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: label.trim() || null,
+          post_url: postUrl.trim(),
+          job_title_keywords: jobKeywords,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setCreateError(`Erreur ${res.status}: ${data.error || res.statusText}`)
+        return
+      }
       setLabel('')
       setPostUrl('')
       setJobKeywords('')
-      setSizeTags('')
       fetchAll()
-    } else {
-      const data = await res.json()
-      setMsg(`Erreur: ${data.error}`)
+    } catch (err) {
+      setCreateError(`Erreur réseau: ${String(err)}`)
     }
   }
 
@@ -200,28 +206,24 @@ export default function CompetitorPage() {
           <div className="flex flex-wrap gap-2">
             <input
               type="text"
-              placeholder="Mots-clés job title (CEO, Founder, CMO…) — séparés par virgule"
+              placeholder="Mots-clés cible (optionnel — CEO, Founder, CMO… séparés par virgule)"
               value={jobKeywords}
               onChange={(e) => setJobKeywords(e.target.value)}
               className="border border-gray-200 rounded px-2 py-1.5 text-sm flex-1 min-w-[260px]"
-              title="+1 point par mot-clé matchant le headline du commentateur (max 3)"
-            />
-            <input
-              type="text"
-              placeholder="Tags entreprise (SaaS, B2B, Agency, SMB…)"
-              value={sizeTags}
-              onChange={(e) => setSizeTags(e.target.value)}
-              className="border border-gray-200 rounded px-2 py-1.5 text-sm flex-1 min-w-[260px]"
-              title="+1 point par tag matchant (max 2)"
+              title="+1 point par mot-clé matchant le headline du commentateur (max 3). Laisse vide pour scoring IA pur."
             />
             <button
               onClick={createTarget}
-              disabled={!postUrl.trim()}
-              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
               Ajouter
             </button>
           </div>
+          {createError && (
+            <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+              {createError}
+            </div>
+          )}
         </div>
 
         {/* Targets list */}
