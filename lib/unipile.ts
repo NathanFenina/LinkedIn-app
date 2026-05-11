@@ -215,13 +215,28 @@ export async function sendPostComment(accountId: string, socialId: string, text:
   })
 }
 
-// Extract LinkedIn post ID/social_id from a post URL
+// Extract LinkedIn post ID/social_id from a post URL.
+// Supported formats:
+//   - urn:li:activity:1234567890 (old activity URN)
+//   - linkedin.com/feed/update/urn:li:activity:1234567890
+//   - linkedin.com/posts/foo_bar-activity-1234567890-XXX
+//   - linkedin.com/posts/foo_bar-share-1234567890-XXX (modern share URL)
+//   - linkedin.com/posts/foo_bar-ugcPost-1234567890-XXX
+// We pick the LONGEST numeric run as a fallback in case none of the named
+// patterns matches but the URL still contains a 16+ digit ID.
 export function extractPostIdFromUrl(url: string): string | null {
-  // urn:li:activity:1234567890 → numeric extraction
   const activityMatch = url.match(/activity[-:]?(\d+)/i)
   if (activityMatch) return activityMatch[1]
   const ugcMatch = url.match(/ugcPost[-:]?(\d+)/i)
   if (ugcMatch) return ugcMatch[1]
+  const shareMatch = url.match(/share[-:]?(\d+)/i)
+  if (shareMatch) return shareMatch[1]
+  // Last-resort fallback: pick the longest run of digits (LinkedIn post IDs
+  // are typically 19 digits, much longer than any other number in the URL).
+  const numbers = url.match(/\d{15,}/g)
+  if (numbers && numbers.length) {
+    return numbers.sort((a, b) => b.length - a.length)[0]
+  }
   return null
 }
 
