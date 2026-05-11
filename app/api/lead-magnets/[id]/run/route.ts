@@ -39,8 +39,16 @@ export async function POST(
 
     const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
 
+    // Re-extract if missing or if stored social_id looks stale (raw numeric for
+    // a share/ugcPost URL — legacy rows from before the URN fix).
+    const looksStale = (stored: string | null, url: string): boolean => {
+      if (!stored) return true
+      if (stored.startsWith('urn:li:')) return false
+      return /\/(posts)\//i.test(url) && /(share|ugcPost)/i.test(url)
+    }
+
     let socialId = campaign.social_id
-    if (!socialId) {
+    if (looksStale(socialId, campaign.post_url)) {
       const extracted = extractPostIdFromUrl(campaign.post_url)
       if (extracted) {
         try {

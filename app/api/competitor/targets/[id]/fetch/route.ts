@@ -32,8 +32,17 @@ export async function POST(
       ACCOUNT_ID = await getActiveAccountId()
     }
 
+    // Re-extract if missing, OR if stored social_id looks stale (raw numeric
+    // for a share/ugcPost URL — legacy rows from before the URN fix).
+    const looksStale = (id: string | null, url: string): boolean => {
+      if (!id) return true
+      if (id.startsWith('urn:li:')) return false
+      // bare numeric stored, but URL is share/ugcPost → must be re-extracted
+      return /\/(posts)\//i.test(url) && /(share|ugcPost)/i.test(url)
+    }
+
     let socialId = target.social_id
-    if (!socialId) {
+    if (looksStale(socialId, target.post_url)) {
       const extracted = extractPostIdFromUrl(target.post_url)
       if (extracted) {
         try {
