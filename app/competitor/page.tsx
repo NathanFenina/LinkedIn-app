@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { CompetitorTarget, CompetitorLead, CompetitorLeadStatus } from '@/types'
 import { Plus, Trash2, Download, Sparkles, Send, ExternalLink } from 'lucide-react'
+import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
 const STATUS_LABELS: Record<CompetitorLeadStatus, string> = {
@@ -208,11 +209,14 @@ export default function CompetitorPage() {
   return (
     <>
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-[1400px] mx-auto px-6 py-3">
-          <h1 className="font-semibold text-gray-900 text-base leading-tight">Outreach concurrent</h1>
-          <p className="text-xs text-gray-500">
-            Récupère les commentateurs des posts de tes concurrents → IA score → invitation LinkedIn ciblée.
-          </p>
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-semibold text-gray-900 text-base leading-tight">Outreach concurrent</h1>
+            <p className="text-xs text-gray-500">
+              Récupère les commentateurs des posts de tes concurrents → IA score → invitation LinkedIn ciblée.
+            </p>
+          </div>
+          <HelpButton sectionId="competitor" />
         </div>
       </header>
 

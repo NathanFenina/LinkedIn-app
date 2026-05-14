@@ -53,6 +53,7 @@ export default function VisitorsPage() {
         title="Visiteurs de profil"
         subtitle={`${visitors.length} visiteurs · ${toContact} à contacter`}
         onSynced={fetchData}
+        helpSectionId="visitors"
       />
 
       <div className="max-w-[1400px] mx-auto px-6 py-4 space-y-3">

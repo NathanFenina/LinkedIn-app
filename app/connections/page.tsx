@@ -121,6 +121,7 @@ export default function ConnectionsPage() {
         title="Connexions"
         subtitle={`${contacts.length} jamais contactées · ${topCount} ≥ 7/10 · ${unscoredCount} non scorées`}
         onSynced={fetchData}
+        helpSectionId="connections"
       />
 
       <div className="max-w-[1400px] mx-auto px-6 py-4 space-y-3">

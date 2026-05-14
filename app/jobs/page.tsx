@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { JobPosting, JobPostingStatus } from '@/types'
 import { ExternalLink, Search, Trash2, Users, Send } from 'lucide-react'
+import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
 const STATUS_LABELS: Record<JobPostingStatus, string> = {
@@ -116,9 +117,12 @@ export default function JobsPage() {
   return (
     <>
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-[1400px] mx-auto px-6 py-3">
-          <h1 className="font-semibold text-gray-900 text-base leading-tight">Offres d&apos;emploi LinkedIn</h1>
-          <p className="text-xs text-gray-500">{jobs.length} offres · contacte directement les décideurs</p>
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-semibold text-gray-900 text-base leading-tight">Offres d&apos;emploi LinkedIn</h1>
+            <p className="text-xs text-gray-500">{jobs.length} offres · contacte directement les décideurs</p>
+          </div>
+          <HelpButton sectionId="jobs" />
         </div>
       </header>
 

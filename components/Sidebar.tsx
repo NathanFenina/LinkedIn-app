@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, BookOpen } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 
@@ -23,7 +23,7 @@ const NAV: NavItem[] = [
   { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'OUTREACH' },
   { href: '/competitor', label: 'Outreach concurrent', icon: UserPlus2, group: 'OUTREACH' },
   { href: '/templates', label: 'Templates', icon: FileText, group: 'CONFIG' },
-  { href: '/how-to-work', label: 'How to work', icon: BookOpen, group: 'CONFIG' },
+  { href: '/automations', label: 'Automations', icon: Zap, group: 'CONFIG' },
 ]
 
 export function Sidebar() {

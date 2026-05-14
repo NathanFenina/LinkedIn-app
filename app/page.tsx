@@ -184,6 +184,7 @@ export default function ConversationsPage() {
         title="Conversations"
         subtitle={`${contacts.length} au total · ${waitingCount} en attente de ta réponse · ${followupCount} à relancer · ${unscoredCount} non scorées`}
         onSynced={fetchData}
+        helpSectionId="conversations"
       />
 
       <div className="max-w-[1400px] mx-auto px-6 py-4 space-y-3">

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { MessageTemplate } from '@/types'
 import { Plus, Trash2, Save } from 'lucide-react'
+import { HelpButton } from '@/components/HelpButton'
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
@@ -69,9 +70,12 @@ export default function TemplatesPage() {
   return (
     <>
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-[1400px] mx-auto px-6 py-3">
-          <h1 className="font-semibold text-gray-900 text-base leading-tight">Templates de messages</h1>
-          <p className="text-xs text-gray-500">Utilisés dans la fenêtre d&apos;envoi · variable disponible : <code className="bg-gray-100 px-1 rounded text-[10px]">{'{name}'}</code></p>
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-semibold text-gray-900 text-base leading-tight">Templates de messages</h1>
+            <p className="text-xs text-gray-500">Utilisés dans la fenêtre d&apos;envoi · variable disponible : <code className="bg-gray-100 px-1 rounded text-[10px]">{'{name}'}</code></p>
+          </div>
+          <HelpButton sectionId="templates" />
         </div>
       </header>
 

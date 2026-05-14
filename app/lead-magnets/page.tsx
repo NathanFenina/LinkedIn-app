@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { LeadMagnetCampaign } from '@/types'
 import { Plus, Play, Trash2, Eye, Power, ExternalLink } from 'lucide-react'
+import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
 interface SendRow {
@@ -125,11 +126,14 @@ export default function LeadMagnetsPage() {
   return (
     <>
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-[1400px] mx-auto px-6 py-3">
-          <h1 className="font-semibold text-gray-900 text-base leading-tight">Lead magnets sur commentaires</h1>
-          <p className="text-xs text-gray-500">
-            Envoie automatiquement un DM aux commentateurs d&apos;un de tes posts qui matchent un mot-clé.
-          </p>
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-semibold text-gray-900 text-base leading-tight">Lead magnets sur commentaires</h1>
+            <p className="text-xs text-gray-500">
+              Envoie automatiquement un DM aux commentateurs d&apos;un de tes posts qui matchent un mot-clé.
+            </p>
+          </div>
+          <HelpButton sectionId="lead-magnets" />
         </div>
       </header>
 

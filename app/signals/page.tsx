@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { SignalKeyword, SignalPost, SignalPostStatus } from '@/types'
 import { ExternalLink, Plus, Trash2, Sparkles, Search, Send, Eye, EyeOff, X } from 'lucide-react'
+import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
 const STATUS_LABELS: Record<SignalPostStatus, string> = {
@@ -145,11 +146,14 @@ export default function SignalsPage() {
   return (
     <>
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-[1400px] mx-auto px-6 py-3">
-          <h1 className="font-semibold text-gray-900 text-base leading-tight">Signaux d&apos;intention</h1>
-          <p className="text-xs text-gray-500">
-            {posts.length} posts · {realCount} vrais signaux · {unqualifiedCount} à qualifier
-          </p>
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-semibold text-gray-900 text-base leading-tight">Signaux d&apos;intention</h1>
+            <p className="text-xs text-gray-500">
+              {posts.length} posts · {realCount} vrais signaux · {unqualifiedCount} à qualifier
+            </p>
+          </div>
+          <HelpButton sectionId="signals" />
         </div>
       </header>
 
