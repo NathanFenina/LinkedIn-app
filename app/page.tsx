@@ -21,7 +21,7 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<ContactStatus | 'all'>('all')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'all' | 'waiting' | 'followup'>('all')
+  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState('')
@@ -44,6 +44,18 @@ export default function ConversationsPage() {
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
   }
 
+  const PRIORITY_MIN_SCORE = 6
+  const PRIORITY_FRESHNESS_DAYS = 14
+  const STALE_STATUSES = new Set<ContactStatus>(['treated', 'do_not_contact', 'client'])
+
+  const isPriority = (c: Contact): boolean => {
+    if (c.score < PRIORITY_MIN_SCORE) return false
+    if (STALE_STATUSES.has(c.status)) return false
+    if (!c.last_message_at) return false
+    const ageMs = Date.now() - new Date(c.last_message_at).getTime()
+    return ageMs <= PRIORITY_FRESHNESS_DAYS * 24 * 60 * 60 * 1000
+  }
+
   const filtered = useMemo(() => {
     return contacts
       .filter((c) => filter === 'all' || c.status === filter)
@@ -56,13 +68,25 @@ export default function ConversationsPage() {
       .filter((c) => {
         if (view === 'waiting') return !c.is_sender_last
         if (view === 'followup') return c.is_sender_last
+        if (view === 'priority') return isPriority(c)
         return true
+      })
+      .sort((a, b) => {
+        if (view === 'priority') {
+          // Top score first, then freshest
+          if (b.score !== a.score) return b.score - a.score
+          const ta = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
+          const tb = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
+          return tb - ta
+        }
+        return 0
       })
   }, [contacts, filter, search, view])
 
   const waitingCount = contacts.filter((c) => !c.is_sender_last).length
   const followupCount = contacts.filter((c) => c.is_sender_last).length
   const unscoredCount = contacts.filter((c) => !c.score).length
+  const priorityCount = contacts.filter(isPriority).length
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -104,6 +128,37 @@ export default function ConversationsPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setActionMsg(`${data.scored}/${data.total} scorés · ${data.failed} échecs`)
+      await fetchData()
+    } catch (err) {
+      setActionMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const quickSync = async () => {
+    setBusy('quick')
+    setActionMsg('Sync rapide : 50 derniers chats…')
+    try {
+      const resp = await fetch('/api/sync/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageSize: 50, messagesPerChat: 15 }),
+      })
+      const data = await resp.json()
+      if (data.error) throw new Error(data.error)
+      setActionMsg(`${data.synced} chats sync · scoring auto en cours…`)
+      await fetchData()
+      // Auto-score the unscored ones we just synced.
+      const scoreRes = await fetch('/api/contacts/score-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onlyUnscored: true }),
+      })
+      const scoreData = await scoreRes.json()
+      setActionMsg(
+        `Sync rapide OK · ${data.synced} chats · ${scoreData.scored || 0} scorés`
+      )
       await fetchData()
     } catch (err) {
       setActionMsg(`Erreur: ${String(err)}`)
@@ -201,6 +256,16 @@ export default function ConversationsPage() {
           </button>
 
           <button
+            onClick={quickSync}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 font-medium"
+            title="Sync les 50 derniers chats et scorer auto les nouveaux"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${busy === 'quick' ? 'animate-spin' : ''}`} />
+            Sync rapide (derniers chats)
+          </button>
+
+          <button
             onClick={loadMoreChats}
             disabled={busy !== null}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-medium"
@@ -232,6 +297,15 @@ export default function ConversationsPage() {
 
         {/* View toggles */}
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setView('priority')}
+            className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
+              view === 'priority' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+            }`}
+            title="Score ≥ 6 · message des 14 derniers jours · pas encore traité"
+          >
+            📥 Boîte priorisée ({priorityCount})
+          </button>
           <button
             onClick={() => setView('all')}
             className={`text-xs px-3 py-1.5 rounded-full border ${

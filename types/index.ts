@@ -176,6 +176,7 @@ export interface StoredMessage {
 export interface ProfileVisitor {
   id: string
   linkedin_id: string | null
+  provider_id: string | null
   name: string
   profile_url: string | null
   avatar_url: string | null
@@ -183,6 +184,10 @@ export interface ProfileVisitor {
   company: string | null
   visited_at: string
   contacted: boolean
+  score: number
+  score_reason: string | null
+  invited_at: string | null
+  invitation_message: string | null
   created_at: string
 }
 

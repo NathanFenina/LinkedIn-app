@@ -286,4 +286,14 @@ ALTER TABLE lead_magnet_campaigns ADD COLUMN IF NOT EXISTS auto_run BOOLEAN DEFA
 ALTER TABLE competitor_targets ADD COLUMN IF NOT EXISTS job_title_keywords TEXT[];
 ALTER TABLE competitor_targets ADD COLUMN IF NOT EXISTS company_size_tags TEXT[];
 
+-- ===========================================================================
+-- Visitors : IA scoring + invitation tracking
+-- ===========================================================================
+ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS provider_id TEXT;
+ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS score INTEGER DEFAULT 0 CHECK (score >= 0 AND score <= 10);
+ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS score_reason TEXT;
+ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ;
+ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS invitation_message TEXT;
+CREATE INDEX IF NOT EXISTS idx_visitors_score ON profile_visitors(score DESC);
+
 NOTIFY pgrst, 'reload schema';
