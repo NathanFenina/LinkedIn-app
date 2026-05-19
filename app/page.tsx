@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Contact, ContactStatus, STATUS_LABELS } from '@/types'
 import { ConversationTable } from '@/components/ConversationTable'
+import { ConversationPipeline } from '@/components/ConversationPipeline'
 import { PageHeader } from '@/components/PageHeader'
 import { Search, Sparkles, Download, RefreshCw } from 'lucide-react'
 
@@ -21,7 +22,7 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<ContactStatus | 'all'>('all')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority'>('all')
+  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority' | 'pipeline'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState('')
@@ -69,6 +70,7 @@ export default function ConversationsPage() {
         if (view === 'waiting') return !c.is_sender_last
         if (view === 'followup') return c.is_sender_last
         if (view === 'priority') return isPriority(c)
+        // pipeline view shows ALL (grouped client-side by status)
         return true
       })
       .sort((a, b) => {
@@ -298,6 +300,15 @@ export default function ConversationsPage() {
         {/* View toggles */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={() => setView('pipeline')}
+            className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
+              view === 'pipeline' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-700 border-indigo-300'
+            }`}
+            title="Vue Kanban groupée par statut (À contacter / En cours / Prospect / Client)"
+          >
+            📊 Pipeline
+          </button>
+          <button
             onClick={() => setView('priority')}
             className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
               view === 'priority' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-700 border-emerald-300'
@@ -361,13 +372,15 @@ export default function ConversationsPage() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Table OR Pipeline */}
         {loading ? (
           <div className="text-center py-12 text-gray-400 text-sm">Chargement…</div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-gray-400 text-sm bg-white rounded-lg border border-gray-200">
             Aucune conversation. Synchronise d&apos;abord.
           </div>
+        ) : view === 'pipeline' ? (
+          <ConversationPipeline contacts={filtered} onUpdate={handleUpdate} />
         ) : (
           <ConversationTable
             contacts={filtered}
