@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { extractPostIdFromUrl } from '@/lib/unipile'
-import { getActiveAccountRowId } from '@/lib/account'
+import { getActiveAccount, getActiveAccountRowId, scopeQueryToAccount } from '@/lib/account'
 
 function parseList(input: unknown): string[] | null {
   if (!input) return null
@@ -34,10 +34,12 @@ function errorMessage(err: unknown): string {
 export async function GET() {
   try {
     const db = getServerSupabase()
-    const { data, error } = await db
-      .from('competitor_targets')
-      .select('*')
-      .order('created_at', { ascending: false })
+    let query = db.from('competitor_targets').select('*')
+    try {
+      const account = await getActiveAccount()
+      query = scopeQueryToAccount(query, account)
+    } catch {}
+    const { data, error } = await query.order('created_at', { ascending: false })
     if (error) throw error
     return Response.json(data)
   } catch (err) {

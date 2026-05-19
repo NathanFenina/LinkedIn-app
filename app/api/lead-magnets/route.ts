@@ -1,14 +1,16 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { extractPostIdFromUrl } from '@/lib/unipile'
-import { getActiveAccountRowId } from '@/lib/account'
+import { getActiveAccount, getActiveAccountRowId, scopeQueryToAccount } from '@/lib/account'
 
 export async function GET() {
   try {
     const db = getServerSupabase()
-    const { data, error } = await db
-      .from('lead_magnet_campaigns')
-      .select('*')
-      .order('created_at', { ascending: false })
+    let query = db.from('lead_magnet_campaigns').select('*')
+    try {
+      const account = await getActiveAccount()
+      query = scopeQueryToAccount(query, account)
+    } catch {}
+    const { data, error } = await query.order('created_at', { ascending: false })
     if (error) throw error
     return Response.json(data)
   } catch (err) {

@@ -1,4 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
+import { getActiveAccount, scopeQueryToAccount } from '@/lib/account'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -8,6 +9,16 @@ export async function GET(request: Request) {
   try {
     const db = getServerSupabase()
     let query = db.from('contacts').select('*')
+
+    // Scope to the active LinkedIn account. The default account ALSO sees
+    // untagged legacy rows (linkedin_account_id IS NULL), so the migration
+    // is seamless. Non-default accounts only see their own data.
+    try {
+      const account = await getActiveAccount()
+      query = scopeQueryToAccount(query, account)
+    } catch {
+      // No account configured at all → return everything (legacy)
+    }
 
     if (tab === 'conversations') {
       query = query.not('chat_id', 'is', null)
