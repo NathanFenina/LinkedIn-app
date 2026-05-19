@@ -45,15 +45,20 @@ export async function POST(request: Request) {
             created_at: m.timestamp,
           }))
         )
-        await db
-          .from('contacts')
-          .update({
-            score: result.score,
-            score_reason: result.reason,
-            conversation_summary: result.summary,
-            suggested_status: result.suggested_status,
-          })
-          .eq('id', contact.id)
+        // Auto-apply the AI suggested status if the user hasn't manually
+        // categorized the contact yet (default statuses only).
+        const isDefaultStatus =
+          contact.status === 'in_progress' || contact.status === 'not_contacted'
+        const updates: Record<string, unknown> = {
+          score: result.score,
+          score_reason: result.reason,
+          conversation_summary: result.summary,
+          suggested_status: result.suggested_status,
+        }
+        if (isDefaultStatus && result.suggested_status) {
+          updates.status = result.suggested_status
+        }
+        await db.from('contacts').update(updates).eq('id', contact.id)
         scored++
       } catch (err) {
         failed++
