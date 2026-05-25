@@ -1,150 +1,141 @@
+import { Rocket, CalendarCheck, CalendarRange, Star, HelpCircle, ListChecks } from 'lucide-react'
 import {
-  MessageSquare,
-  Users,
-  Eye,
-  Target,
-  Briefcase,
-  Magnet,
-  UserPlus2,
-  FileText,
-  BookOpen,
-} from 'lucide-react'
+  HOW_TO_SECTIONS,
+  ACCOUNT_SECTION,
+  GOLDEN_RULE,
+  FIRST_TIME_STEPS,
+  DAILY_STEPS,
+  WEEKLY_STEPS,
+  SCORING_FAQ,
+  STATUS_GUIDE,
+} from '@/lib/how-to-work-sections'
 
-interface Section {
+function RoutineCard({
+  icon: Icon,
+  badge,
+  title,
+  subtitle,
+  steps,
+  accent,
+}: {
   icon: React.ComponentType<{ className?: string }>
+  badge: string
   title: string
-  goal: string
+  subtitle: string
   steps: string[]
-  tips?: string[]
-}
-
-const SECTIONS: Section[] = [
-  {
-    icon: MessageSquare,
-    title: 'Conversations',
-    goal: 'Voir toutes tes conversations LinkedIn dans un seul tableau, scorer par IA, filtrer par statut, et répondre / relancer.',
-    steps: [
-      'Synchronise tes chats avec « Charger +500 conversations » (boutons en haut). Ça part par lots de 50 ; reste sur la page.',
-      'Filtre via « 🔵 À répondre » (le contact a écrit en dernier) ou « 🔄 À relancer » (toi en dernier).',
-      'Sélectionne une ou plusieurs conversations et clique « Scorer sélection » → l\'IA Gemini score 1-10 et propose un statut.',
-      'Clique sur une ligne pour voir l\'historique complet et envoyer un message (peut être généré par IA).',
-    ],
-    tips: [
-      'Le score se met à jour à chaque re-scoring : il s\'enrichit au fur et à mesure de la conversation.',
-      'Le statut « Traité » et « Ne pas contacter » retire la conversation des vues actives.',
-    ],
-  },
-  {
-    icon: Users,
-    title: 'Connexions',
-    goal: 'Tout l\'annuaire de tes relations LinkedIn 1er degré, avec scoring IA basé sur le titre / poste.',
-    steps: [
-      'Sync depuis le bouton de la barre du haut.',
-      'Score les profils en batch — l\'IA évalue si chaque personne matche ton ICP business.',
-    ],
-  },
-  {
-    icon: Eye,
-    title: 'Visiteurs',
-    goal: 'Liste des personnes qui ont consulté ton profil. Cible chaude par définition.',
-    steps: [
-      'Sync depuis le bouton de la barre du haut.',
-      'Marque comme « Contacté » au fur et à mesure des prises de contact.',
-    ],
-  },
-  {
-    icon: Target,
-    title: 'Signaux',
-    goal: 'Trouver des posts LinkedIn récents qui contiennent un mot-clé d\'intention d\'achat (ex: « cherche consultant SEO »), puis qualifier vrai signal vs bruit.',
-    steps: [
-      'Crée des mots-clés dans la liste « Mots-clés actifs ».',
-      'Lance « Rechercher » : récupère les posts < 7 jours pour chaque mot-clé.',
-      'Clique « Qualifier (IA) » : Gemini distingue intention réelle d\'achat vs simple post sur le sujet.',
-      'Sur les vrais signaux : commenter le post ou DM directement l\'auteur.',
-    ],
-    tips: [
-      'Un cron quotidien (configurable) tourne automatiquement et récupère + qualifie les nouveaux posts.',
-      'Définit ton « business context » dans la variable d\'env SIGNAL_BUSINESS_CONTEXT pour adapter la qualification.',
-    ],
-  },
-  {
-    icon: Briefcase,
-    title: 'Jobs',
-    goal: 'Trouver des offres d\'emploi récentes liées à ton ICP, puis identifier les décideurs de la boîte qui recrute.',
-    steps: [
-      'Lance une recherche par mot-clé (ex: « SEO Manager »).',
-      'Sur une offre intéressante, clique « Trouver des contacts » → Unipile résout l\'entreprise et cherche les décideurs (CMO / Founder / Head of...).',
-      'Contacte directement depuis la liste de contacts trouvés.',
-    ],
-  },
-  {
-    icon: Magnet,
-    title: 'Lead magnets',
-    goal: 'Distribuer une ressource (PDF, Notion, etc.) automatiquement aux personnes qui commentent un post avec un mot-clé donné.',
-    steps: [
-      'Crée une campagne : URL du post + mot-clé déclencheur (ex: « +1 », « moi ») + template du DM (avec {name} et {magnet_url}).',
-      'Optionnel : seuil minimum de commentaires (ne lance que si le post a >= N commentaires).',
-      'Clique « Aperçu » (dry-run) pour voir qui sera ciblé sans envoyer.',
-      'Clique « Envoyer » pour distribuer en réel.',
-    ],
-    tips: [
-      'Anti-doublon : un commentateur n\'est jamais relancé deux fois sur la même campagne.',
-      'Si tu actives `auto_run`, le cron lead-magnets relance automatiquement la campagne aux nouveaux commentateurs.',
-    ],
-  },
-  {
-    icon: UserPlus2,
-    title: 'Outreach concurrent',
-    goal: 'Récupérer les commentateurs d\'un post concurrent, les scorer, puis envoyer une invitation personnalisée.',
-    steps: [
-      'Crée un target : URL du post concurrent + label.',
-      'Optionnel : précise des « job_title_keywords » (ex: CEO, Founder, CMO) et des « company_size_tags » (ex: SMB, mid-market) pour booster le scoring.',
-      'Clique « Récupérer les commentaires » : tous les commentateurs sont stockés.',
-      'Lance « Qualifier (IA) » : score 1-10 par lead. Critères : profil + commentaire + ton ICP (variable SIGNAL_BUSINESS_CONTEXT).',
-      'Sur un lead qualifié (score >= 7), clique « Inviter » : message personnalisé généré par IA, ou écris le tien.',
-    ],
-    tips: [
-      'Le scoring déterministe (mots-clés + tags) est combiné au scoring IA pour pousser les profils qui matchent ton ICP.',
-    ],
-  },
-  {
-    icon: FileText,
-    title: 'Templates',
-    goal: 'Bibliothèque de messages réutilisables, accessibles depuis le dialog de réponse.',
-    steps: [
-      'Crée des templates avec un nom + contenu.',
-      'Dans le dialog d\'envoi, sélectionne un template pour le pré-remplir, puis adapte.',
-    ],
-  },
-]
-
-const ACCOUNT_SECTION = {
-  icon: BookOpen,
-  title: 'Comptes LinkedIn (multi-compte)',
-  goal: 'Brancher plusieurs comptes LinkedIn (Unipile) et basculer entre eux.',
-  steps: [
-    'Dans la sidebar (en haut), clique sur le sélecteur de compte → « Ajouter un compte ».',
-    'Renseigne un label (ex: « Pro », « Perso ») + l\'`account_id` Unipile du compte.',
-    'Le compte par défaut est utilisé tant que tu ne sélectionnes pas un autre.',
-    'Toutes les actions (sync, DM, signal, lead magnet, competitor) utilisent le compte actif.',
-  ],
-  tips: [
-    'Pour brancher un 2ème compte LinkedIn dans Unipile : va dans ton dashboard Unipile, ajoute un nouveau provider LinkedIn, copie l\'account_id, puis colle-le ici.',
-    'Le cron tourne sur **tous** les comptes (pas seulement l\'actif) pour ne rater aucun signal.',
-  ],
+  accent: string
+}) {
+  return (
+    <div className={`rounded-xl border p-4 ${accent}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <Icon className="w-5 h-5" />
+        <span className="text-[10px] font-bold uppercase tracking-wide opacity-70">{badge}</span>
+      </div>
+      <h3 className="font-bold text-base mb-0.5">{title}</h3>
+      <p className="text-xs opacity-70 mb-3">{subtitle}</p>
+      <ol className="space-y-2">
+        {steps.map((s, i) => (
+          <li key={i} className="flex gap-2.5 text-sm">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-white/70 text-current font-bold text-xs flex items-center justify-center mt-0.5">
+              {i + 1}
+            </span>
+            <span className="leading-snug">{s}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
 }
 
 export default function HowToWorkPage() {
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">How to work</h1>
+      <header className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Comment utiliser l&apos;app</h1>
         <p className="text-sm text-gray-600">
-          Guide rapide de chaque feature de l&apos;application. Lis-le en entier la première fois,
-          puis reviens ici pour les détails.
+          Guide complet. Si tu débutes, lis simplement « Par où commencer » ci-dessous : c&apos;est
+          tout ce dont tu as besoin pour démarrer.
         </p>
       </header>
 
+      {/* ── RÈGLE D'OR ─────────────────────────────────────────── */}
+      <div className="rounded-xl bg-gray-900 text-white p-4 mb-6 flex gap-3 items-start">
+        <Star className="w-5 h-5 shrink-0 mt-0.5 text-yellow-400" />
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-yellow-400 mb-0.5">
+            La règle d&apos;or
+          </div>
+          <p className="text-sm leading-snug">{GOLDEN_RULE}</p>
+        </div>
+      </div>
+
+      {/* ── PAR OÙ COMMENCER ───────────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900 mb-3">
+          <Rocket className="w-5 h-5 text-blue-600" />
+          Par où commencer
+        </h2>
+        <div className="space-y-3">
+          <RoutineCard
+            icon={ListChecks}
+            badge="Une seule fois — installation"
+            title="Première fois"
+            subtitle="À faire au tout début, ou quand tu branches un nouveau compte."
+            steps={FIRST_TIME_STEPS}
+            accent="bg-violet-50 border-violet-200 text-violet-900"
+          />
+          <RoutineCard
+            icon={CalendarCheck}
+            badge="Chaque jour — 5 à 10 min"
+            title="Ta routine quotidienne"
+            subtitle="C'est le cœur de l'outil. Si tu ne fais que ça, c'est déjà très bien."
+            steps={DAILY_STEPS}
+            accent="bg-emerald-50 border-emerald-200 text-emerald-900"
+          />
+          <RoutineCard
+            icon={CalendarRange}
+            badge="~1× par semaine — alimenter"
+            title="Pour faire venir de nouveaux prospects"
+            subtitle="Attirer des gens chauds plutôt que démarcher à froid."
+            steps={WEEKLY_STEPS}
+            accent="bg-blue-50 border-blue-200 text-blue-900"
+          />
+        </div>
+      </section>
+
+      {/* ── COMPRENDRE LE SCORE ────────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900 mb-3">
+          <HelpCircle className="w-5 h-5 text-blue-600" />
+          Comprendre le score (important)
+        </h2>
+        <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
+          {SCORING_FAQ.map(({ q, a }, i) => (
+            <div key={i} className="p-3.5">
+              <p className="text-sm font-semibold text-gray-900 mb-0.5">{q}</p>
+              <p className="text-sm text-gray-600 leading-snug">{a}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── LES STATUTS ────────────────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Les statuts, en clair</h2>
+        <div className="bg-white border border-gray-200 rounded-lg p-4 grid sm:grid-cols-2 gap-x-6 gap-y-2.5">
+          {STATUS_GUIDE.map(({ emoji, label, meaning }) => (
+            <div key={label} className="flex gap-2.5 text-sm">
+              <span className="shrink-0">{emoji}</span>
+              <span>
+                <span className="font-semibold text-gray-900">{label}</span>
+                <span className="text-gray-600"> — {meaning}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── COMPTES ────────────────────────────────────────────── */}
       <section className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8">
         <h2 className="font-semibold text-blue-900 mb-2 flex items-center gap-2 text-sm">
           <ACCOUNT_SECTION.icon className="w-4 h-4" />
@@ -163,13 +154,15 @@ export default function HowToWorkPage() {
         </ul>
       </section>
 
-      <div className="space-y-6">
-        {SECTIONS.map(({ icon: Icon, title, goal, steps, tips }) => (
-          <section key={title} className="bg-white border border-gray-200 rounded-lg p-5">
-            <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2 text-sm">
+      {/* ── DÉTAIL PAR ONGLET ──────────────────────────────────── */}
+      <h2 className="text-lg font-bold text-gray-900 mb-3">Chaque onglet en détail</h2>
+      <div className="space-y-4">
+        {Object.entries(HOW_TO_SECTIONS).map(([key, { icon: Icon, title, goal, steps, tips }]) => (
+          <section key={key} className="bg-white border border-gray-200 rounded-lg p-5">
+            <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2 text-sm">
               <Icon className="w-4 h-4 text-blue-600" />
               {title}
-            </h2>
+            </h3>
             <p className="text-xs text-gray-600 mb-3">{goal}</p>
 
             <div className="text-[11px] font-bold uppercase text-gray-400 mb-1.5">
@@ -195,33 +188,11 @@ export default function HowToWorkPage() {
         ))}
       </div>
 
-      <footer className="mt-8 pt-6 border-t border-gray-200 text-xs text-gray-500">
-        <p className="mb-1">
-          <strong>Variables d&apos;environnement clés</strong> (à mettre dans Vercel ou
-          .env.local) :
+      <footer className="mt-8 pt-6 border-t border-gray-200 text-xs text-gray-400">
+        <p>
+          Réglages techniques (clés API, etc.) : voir le fichier <code>.env.example</code> et le{' '}
+          <code>README.md</code> du projet.
         </p>
-        <ul className="list-disc pl-5 space-y-0.5">
-          <li>
-            <code>UNIPILE_DSN</code>, <code>UNIPILE_API_KEY</code> — accès Unipile
-          </li>
-          <li>
-            <code>LINKEDIN_ACCOUNT_ID</code> — fallback legacy (utilisé si la table
-            linkedin_accounts est vide)
-          </li>
-          <li>
-            <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code> — DB
-          </li>
-          <li>
-            <code>GEMINI_API_KEY</code> — scoring & génération de messages
-          </li>
-          <li>
-            <code>SIGNAL_BUSINESS_CONTEXT</code> — décrit ton ICP en langage naturel pour le
-            scoring IA
-          </li>
-          <li>
-            <code>CRON_SECRET</code> — protège les endpoints /api/cron/*
-          </li>
-        </ul>
       </footer>
     </div>
   )

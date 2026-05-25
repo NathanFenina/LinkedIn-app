@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 
@@ -82,6 +82,21 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+
+      <div className="p-2 border-t border-gray-100">
+        <Link
+          href="/how-to-work"
+          className={cn(
+            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+            pathname.startsWith('/how-to-work')
+              ? 'bg-blue-50 text-blue-700 font-medium'
+              : 'text-gray-600 hover:bg-gray-50'
+          )}
+        >
+          <BookOpen className="w-4 h-4" />
+          Comment utiliser l&apos;app
+        </Link>
+      </div>
     </aside>
   )
 }
