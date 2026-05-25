@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Contact, ContactStatus, STATUS_COLORS } from '@/types'
+import { Contact, ContactStatus, STATUS_COLORS, STATUS_LABELS, STATUS_OPTIONS, displayStatus } from '@/types'
 import { formatDistanceToNow } from '@/lib/utils'
 import { MessageDialog } from './MessageDialog'
 
@@ -11,13 +11,13 @@ interface Props {
 }
 
 const COLUMNS: { status: ContactStatus; label: string; emoji: string; tint: string }[] = [
-  { status: 'to_contact', label: 'À contacter', emoji: '📥', tint: 'bg-blue-50 border-blue-200' },
+  { status: 'to_contact', label: 'À traiter', emoji: '📥', tint: 'bg-blue-50 border-blue-200' },
   { status: 'in_progress', label: 'En cours', emoji: '💬', tint: 'bg-yellow-50 border-yellow-200' },
-  { status: 'prospect', label: 'Prospect chaud', emoji: '🔥', tint: 'bg-purple-50 border-purple-200' },
-  { status: 'client', label: 'Client', emoji: '✅', tint: 'bg-green-50 border-green-200' },
+  { status: 'prospect', label: 'Chaud', emoji: '🔥', tint: 'bg-purple-50 border-purple-200' },
 ]
 
 const ARCHIVE: { status: ContactStatus; label: string; emoji: string }[] = [
+  { status: 'client', label: 'Client', emoji: '✅' },
   { status: 'treated', label: 'Traité', emoji: '✔' },
   { status: 'do_not_contact', label: 'Ne pas contacter', emoji: '🚫' },
 ]
@@ -80,14 +80,14 @@ function ContactCard({
           {contact.last_message_at ? formatDistanceToNow(contact.last_message_at) : '—'}
         </span>
         <select
-          value={contact.status}
+          value={displayStatus(contact.status)}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => onChangeStatus(e.target.value as ContactStatus)}
           className={`text-[9px] rounded px-1 py-0.5 border-0 cursor-pointer ${STATUS_COLORS[contact.status]}`}
         >
-          {([...COLUMNS.map((c) => c.status), ...ARCHIVE.map((a) => a.status), 'not_contacted'] as ContactStatus[]).map((s) => (
+          {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {STATUS_LABELS[s]}
             </option>
           ))}
         </select>
@@ -109,7 +109,9 @@ export function ConversationPipeline({ contacts, onUpdate }: Props) {
     client: [],
   }
   for (const c of contacts) {
-    if (byStatus[c.status]) byStatus[c.status].push(c)
+    // 'not_contacted' (legacy) est affiché dans la colonne 'À traiter'.
+    const key = displayStatus(c.status)
+    if (byStatus[key]) byStatus[key].push(c)
   }
   // Sort within each column by score desc, then most recent first
   for (const key of Object.keys(byStatus) as ContactStatus[]) {

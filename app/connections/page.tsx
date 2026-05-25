@@ -1,22 +1,25 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Contact, ContactStatus, STATUS_LABELS } from '@/types'
+import { Contact, ContactStatus, STATUS_LABELS, ARCHIVE_STATUSES, displayStatus } from '@/types'
 import { ConnectionTable } from '@/components/ConnectionTable'
 import { PageHeader } from '@/components/PageHeader'
 import { Search, Download, Sparkles } from 'lucide-react'
 
-const STATUS_FILTERS: { value: ContactStatus | 'all'; label: string }[] = [
+type StatusFilter = ContactStatus | 'all' | 'archived'
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'Tous' },
-  { value: 'not_contacted', label: STATUS_LABELS.not_contacted },
   { value: 'to_contact', label: STATUS_LABELS.to_contact },
-  { value: 'do_not_contact', label: STATUS_LABELS.do_not_contact },
+  { value: 'in_progress', label: STATUS_LABELS.in_progress },
+  { value: 'prospect', label: STATUS_LABELS.prospect },
+  { value: 'archived', label: 'Archivé' },
 ]
 
 export default function ConnectionsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(false)
-  const [filter, setFilter] = useState<ContactStatus | 'all'>('all')
+  const [filter, setFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
@@ -43,7 +46,12 @@ export default function ConnectionsPage() {
 
   const filtered = useMemo(() => {
     return contacts
-      .filter((c) => filter === 'all' || c.status === filter)
+      .filter((c) => {
+        if (filter === 'all') return true
+        if (filter === 'archived') return ARCHIVE_STATUSES.includes(c.status)
+        // 'À traiter' (to_contact) couvre aussi les not_contacted (legacy).
+        return displayStatus(c.status) === filter
+      })
       .filter(
         (c) =>
           !search ||

@@ -238,13 +238,25 @@ export interface UnipileProfileView {
 }
 
 export const STATUS_LABELS: Record<ContactStatus, string> = {
-  not_contacted: 'Non contacté',
-  to_contact: 'À contacter',
+  not_contacted: 'À traiter',
+  to_contact: 'À traiter',
   in_progress: 'En cours',
   treated: 'Traité',
   do_not_contact: 'Ne pas contacter',
-  prospect: 'Prospect',
+  prospect: 'Chaud',
   client: 'Client',
+}
+
+// Modèle de travail simplifié : 3 statuts actifs + archive.
+// L'enum reste plus large pour compat DB (contrainte CHECK) et suggestions IA.
+export const ACTIVE_STATUSES: ContactStatus[] = ['to_contact', 'in_progress', 'prospect']
+export const ARCHIVE_STATUSES: ContactStatus[] = ['client', 'treated', 'do_not_contact']
+// Ordre proposé dans les menus de statut (À traiter → En cours → Chaud → archive)
+export const STATUS_OPTIONS: ContactStatus[] = [...ACTIVE_STATUSES, ...ARCHIVE_STATUSES]
+
+// 'not_contacted' (legacy) est replié dans 'À traiter' pour l'affichage.
+export function displayStatus(s: ContactStatus): ContactStatus {
+  return s === 'not_contacted' ? 'to_contact' : s
 }
 
 export const STATUS_COLORS: Record<ContactStatus, string> = {

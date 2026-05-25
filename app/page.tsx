@@ -1,28 +1,28 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Contact, ContactStatus, STATUS_LABELS } from '@/types'
+import { Contact, ContactStatus, STATUS_LABELS, ARCHIVE_STATUSES } from '@/types'
 import { ConversationTable } from '@/components/ConversationTable'
 import { ConversationPipeline } from '@/components/ConversationPipeline'
 import { PageHeader } from '@/components/PageHeader'
 import { Search, Sparkles, Download, RefreshCw } from 'lucide-react'
 
-const STATUS_FILTERS: { value: ContactStatus | 'all'; label: string }[] = [
+type StatusFilter = ContactStatus | 'all' | 'archived'
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'Tous' },
   { value: 'to_contact', label: STATUS_LABELS.to_contact },
   { value: 'in_progress', label: STATUS_LABELS.in_progress },
   { value: 'prospect', label: STATUS_LABELS.prospect },
-  { value: 'client', label: STATUS_LABELS.client },
-  { value: 'treated', label: STATUS_LABELS.treated },
-  { value: 'do_not_contact', label: STATUS_LABELS.do_not_contact },
+  { value: 'archived', label: 'Archivé' },
 ]
 
 export default function ConversationsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(false)
-  const [filter, setFilter] = useState<ContactStatus | 'all'>('all')
+  const [filter, setFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority' | 'pipeline'>('all')
+  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority' | 'pipeline'>('priority')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState('')
@@ -59,7 +59,11 @@ export default function ConversationsPage() {
 
   const filtered = useMemo(() => {
     return contacts
-      .filter((c) => filter === 'all' || c.status === filter)
+      .filter((c) => {
+        if (filter === 'all') return true
+        if (filter === 'archived') return ARCHIVE_STATUSES.includes(c.status)
+        return c.status === filter
+      })
       .filter(
         (c) =>
           !search ||
@@ -304,7 +308,7 @@ export default function ConversationsPage() {
             className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
               view === 'pipeline' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-700 border-indigo-300'
             }`}
-            title="Vue Kanban groupée par statut (À contacter / En cours / Prospect / Client)"
+            title="Vue Kanban groupée par statut (À traiter / En cours / Chaud)"
           >
             📊 Pipeline
           </button>
@@ -376,8 +380,19 @@ export default function ConversationsPage() {
         {loading ? (
           <div className="text-center py-12 text-gray-400 text-sm">Chargement…</div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-12 text-gray-400 text-sm bg-white rounded-lg border border-gray-200">
-            Aucune conversation. Synchronise d&apos;abord.
+          <div className="text-center py-12 text-gray-500 text-sm bg-white rounded-lg border border-gray-200 space-y-2">
+            {view === 'priority' ? (
+              <>
+                <p className="font-medium text-gray-700">Aucun lead chaud pour l&apos;instant.</p>
+                <p className="text-gray-400">
+                  {unscoredCount > 0
+                    ? `Clique « Scorer non scorées (${unscoredCount}) » : l'IA fait remonter ici les conversations chaudes (score ≥ 6, message récent).`
+                    : 'Tout est scoré, mais rien ne dépasse le seuil chaud. Bascule sur « Tous » pour voir l\'ensemble.'}
+                </p>
+              </>
+            ) : (
+              <p className="text-gray-400">Aucune conversation. Synchronise d&apos;abord.</p>
+            )}
           </div>
         ) : view === 'pipeline' ? (
           <ConversationPipeline contacts={filtered} onUpdate={handleUpdate} />

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Contact, ContactStatus, STATUS_LABELS, STATUS_COLORS } from '@/types'
+import { Contact, ContactStatus, STATUS_LABELS, STATUS_COLORS, STATUS_OPTIONS, displayStatus } from '@/types'
 import { MessageDialog } from './MessageDialog'
 import { MessageHistoryDialog } from './MessageHistoryDialog'
 import { formatDistanceToNow } from '@/lib/utils'
@@ -17,16 +17,6 @@ interface Props {
 
 type SortKey = 'name' | 'job_title' | 'score' | 'status' | 'last_message_at'
 type SortDir = 'asc' | 'desc'
-
-const ALL_STATUSES: ContactStatus[] = [
-  'not_contacted',
-  'to_contact',
-  'in_progress',
-  'treated',
-  'do_not_contact',
-  'prospect',
-  'client',
-]
 
 function ScoreChip({ score }: { score: number }) {
   if (!score) return <span className="text-gray-300 text-xs">—</span>
@@ -203,11 +193,11 @@ export function ConversationTable({ contacts, onUpdate, selectedIds, onToggleSel
                     </td>
                     <td className="px-3 py-2 align-top">
                       <select
-                        value={c.status}
+                        value={displayStatus(c.status)}
                         onChange={(e) => handleStatus(c.id, e.target.value as ContactStatus)}
                         className={`text-[11px] rounded-full px-2 py-0.5 border-0 focus:ring-1 focus:ring-blue-400 cursor-pointer ${STATUS_COLORS[c.status]}`}
                       >
-                        {ALL_STATUSES.map((s) => (
+                        {STATUS_OPTIONS.map((s) => (
                           <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                         ))}
                       </select>
