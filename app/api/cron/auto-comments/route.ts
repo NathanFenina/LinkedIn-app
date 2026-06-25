@@ -1,7 +1,7 @@
 // Cron: runs every active auto-comment job with auto_run=true.
 // Auth: header "Authorization: Bearer ${CRON_SECRET}".
 import { getServerSupabase } from '@/lib/supabase'
-import { resolveAccountContext, runAutoCommentJob } from '@/lib/auto-comment'
+import { resolveAccountContext, runAutoCommentBatch } from '@/lib/auto-comment'
 
 export const maxDuration = 300
 
@@ -29,7 +29,7 @@ async function runJob() {
         errors.push(`${job.label || job.id}: aucun compte LinkedIn disponible`)
         continue
       }
-      const result = await runAutoCommentJob(db, job, ctx)
+      const result = await runAutoCommentBatch(db, job, ctx)
       commented += result.commented
       errors.push(...result.errors.map((e) => `${job.label || job.id}: ${e}`))
       await db

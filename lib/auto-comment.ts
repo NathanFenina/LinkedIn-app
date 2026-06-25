@@ -1,13 +1,20 @@
-// Shared engine for the auto-comment feature (used by the manual /run endpoint
-// and by the cron). Faithful port of the n8n "Auto Comments" workflow:
+// Shared engine for the auto-comment feature. Faithful port of the n8n
+// "Auto Comments" workflow:
 //   feed/search URL → fetch posts (Unipile) → dedup vs what this account already
-//   commented → language+mood → strategy → persona comment → like + comment.
+//   handled → language+mood → strategy → persona comment → like + comment.
+//
+// Two execution paths share these helpers:
+//   - UI (manual, watched): queue + step endpoints drive a client-side loop so
+//     each request stays short and the ~3 min wait + a Stop button live in the
+//     browser. Posts already published stay logged; the pending queue is resumable.
+//   - Cron (unattended): processes a small batch in one pass with short delays.
 import { getServerSupabase } from '@/lib/supabase'
 import {
   searchLinkedInByUrl,
   normalizeFeedPost,
   sendPostComment,
   sendPostReaction,
+  type RawPost,
 } from '@/lib/unipile'
 import {
   detectLanguageAndMood,
@@ -36,7 +43,13 @@ export async function resolveAccountContext(
   linkedin_account_id: string | null
 ): Promise<AccountContext | null> {
   let row:
-    | { id: string; unipile_account_id: string; persona_name: string | null; persona_identity: string | null; persona_brand: string | null }
+    | {
+        id: string
+        unipile_account_id: string
+        persona_name: string | null
+        persona_identity: string | null
+        persona_brand: string | null
+      }
     | null = null
 
   if (linkedin_account_id) {
@@ -80,25 +93,6 @@ export async function resolveAccountContext(
   return null
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-export interface RunResult {
-  posts_found: number
-  already_commented: number
-  commented: number
-  preview: Array<{ post_url: string | null; author: string | null; strategy: string; comment: string }>
-  errors: string[]
-}
-
-interface RunOptions {
-  dryRun?: boolean
-  // delay window between two real comments (anti-spam, like the n8n 1-2 min wait).
-  // kept short by default so a manual run fits inside the serverless time budget.
-  minDelayMs?: number
-  maxDelayMs?: number
-}
-
-// Type matching the auto_comment_jobs row fields the engine needs.
 export interface JobLike {
   id: string
   search_url: string
@@ -107,142 +101,167 @@ export interface JobLike {
   linkedin_account_id: string | null
 }
 
-export async function runAutoCommentJob(
+export interface FreshPost {
+  social_id: string
+  post_url: string
+  text: string
+  author_name: string | null
+}
+
+// Walk the feed/search URL and return up to `limit` posts that this account has
+// NOT handled yet (any existing auto_comment_posts row for the account = handled).
+export async function fetchFreshPosts(
   db: DB,
   job: JobLike,
   ctx: AccountContext,
-  options: RunOptions = {}
-): Promise<RunResult> {
-  const { dryRun = false, minDelayMs = 3000, maxDelayMs = 8000 } = options
-  const ACCOUNT_ID = ctx.unipile_account_id
-  const accountRowId = ctx.account_row_id
-  const maxPosts = Math.max(1, job.max_posts || 5)
-
-  // Posts already handled for THIS account (dedup across the whole account).
+  limit: number
+): Promise<{ posts: FreshPost[]; found: number; already: number }> {
   const { data: existing } = await db
     .from('auto_comment_posts')
     .select('post_url')
-    .eq('linkedin_account_id', accountRowId)
+    .eq('linkedin_account_id', ctx.account_row_id)
   const seen = new Set((existing || []).map((r) => r.post_url))
 
-  const result: RunResult = {
-    posts_found: 0,
-    already_commented: 0,
-    commented: 0,
-    preview: [],
-    errors: [],
-  }
-
-  // 1) Walk the feed/search URL until we have enough fresh posts (or run dry).
-  const fresh: ReturnType<typeof normalizeFeedPost>[] = []
+  const posts: FreshPost[] = []
+  let found = 0
+  let already = 0
   let cursor: string | undefined = undefined
   let safety = 0
-  while (fresh.length < maxPosts && safety < 10) {
+
+  while (posts.length < limit && safety < 10) {
     safety++
-    let page: { items: import('@/lib/unipile').RawPost[]; cursor?: string }
+    let page: { items: RawPost[]; cursor?: string }
     try {
-      page = await searchLinkedInByUrl(ACCOUNT_ID, job.search_url, cursor)
-    } catch (err) {
-      result.errors.push(`search: ${String(err)}`)
+      page = await searchLinkedInByUrl(ctx.unipile_account_id, job.search_url, cursor)
+    } catch {
       break
     }
     if (!page.items.length) break
     for (const raw of page.items) {
       const p = normalizeFeedPost(raw)
       if (!p.post_url || !p.social_id || !p.text) continue
-      result.posts_found++
+      found++
       if (seen.has(p.post_url)) {
-        result.already_commented++
+        already++
         continue
       }
       seen.add(p.post_url)
-      fresh.push(p)
-      if (fresh.length >= maxPosts) break
+      posts.push({
+        social_id: p.social_id,
+        post_url: p.post_url,
+        text: p.text,
+        author_name: p.author_name,
+      })
+      if (posts.length >= limit) break
     }
     if (!page.cursor) break
     cursor = page.cursor
   }
 
-  // 2) Generate + post a comment for each fresh post.
-  for (let i = 0; i < fresh.length; i++) {
-    const p = fresh[i]
+  return { posts, found, already }
+}
+
+export interface GeneratedComment {
+  language: string
+  mood: string
+  strategy: string
+  description: string
+  comment: string
+}
+
+// language+mood → strategy → persona comment, with the same cleaning the n8n
+// "Set comment content" node did (NAME placeholder, newlines, markdown, spaces).
+export async function generateCommentForPost(
+  ctx: AccountContext,
+  text: string,
+  authorName: string | null
+): Promise<GeneratedComment> {
+  const { language, mood } = await detectLanguageAndMood(text)
+  const strat = await chooseCommentStrategy({
+    personaName: ctx.persona.name,
+    brand: ctx.persona.brand,
+    postText: text,
+  })
+  const raw = await generateLinkedInComment({
+    personaName: ctx.persona.name,
+    personaIdentity: ctx.persona.identity,
+    brand: ctx.persona.brand,
+    postText: text,
+    language,
+    mood,
+    strategy: strat.strategy,
+    strategyDescription: strat.description,
+    selfReference: strat.self_reference,
+  })
+  const comment = String(raw || '')
+    .replace(/NAME/g, authorName || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/[*_~`>]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return { language, mood, strategy: strat.strategy, description: strat.description, comment }
+}
+
+// Like (optional) + comment a single post via Unipile.
+export async function likeAndComment(
+  ctx: AccountContext,
+  job: JobLike,
+  socialId: string,
+  comment: string
+): Promise<void> {
+  if (job.like_post) {
     try {
-      const { language, mood } = await detectLanguageAndMood(p.text || '')
-      const strat = await chooseCommentStrategy({
-        personaName: ctx.persona.name,
-        brand: ctx.persona.brand,
-        postText: p.text || '',
-      })
-      const raw = await generateLinkedInComment({
-        personaName: ctx.persona.name,
-        personaIdentity: ctx.persona.identity,
-        brand: ctx.persona.brand,
-        postText: p.text || '',
-        language,
-        mood,
-        strategy: strat.strategy,
-        strategyDescription: strat.description,
-        selfReference: strat.self_reference,
-      })
-      // Clean the comment the same way the n8n "Set comment content" node did:
-      // drop NAME placeholder, newlines, markdown chars, collapse spaces.
-      const comment = String(raw || '')
-        .replace(/NAME/g, p.author_name || '')
-        .replace(/\r?\n+/g, ' ')
-        .replace(/[*_~`>]+/g, ' ')
-        .replace(/\s{2,}/g, ' ')
-        .trim()
+      await sendPostReaction(ctx.unipile_account_id, socialId, 'like')
+    } catch {
+      // a failed like shouldn't block the comment
+    }
+  }
+  await sendPostComment(ctx.unipile_account_id, socialId, comment)
+}
 
-      if (!comment) {
-        result.errors.push(`${p.post_url}: commentaire vide`)
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// Cron path: process a small batch in one pass. Kept under the serverless time
+// budget by using short delays (unattended runs don't need the human-like 3 min).
+export async function runAutoCommentBatch(
+  db: DB,
+  job: JobLike,
+  ctx: AccountContext
+): Promise<{ commented: number; errors: string[] }> {
+  const { posts } = await fetchFreshPosts(db, job, ctx, Math.max(1, job.max_posts || 5))
+  let commented = 0
+  const errors: string[] = []
+
+  for (let i = 0; i < posts.length; i++) {
+    const p = posts[i]
+    try {
+      const gen = await generateCommentForPost(ctx, p.text, p.author_name)
+      if (!gen.comment) {
+        errors.push(`${p.post_url}: commentaire vide`)
         continue
       }
-
-      if (dryRun) {
-        result.preview.push({
-          post_url: p.post_url,
-          author: p.author_name,
-          strategy: strat.strategy,
-          comment,
-        })
-        continue
-      }
-
-      if (job.like_post) {
-        try {
-          await sendPostReaction(ACCOUNT_ID, p.social_id!, 'like')
-        } catch {
-          // a failed like shouldn't block the comment
-        }
-      }
-      await sendPostComment(ACCOUNT_ID, p.social_id!, comment)
-
+      await likeAndComment(ctx, job, p.social_id, gen.comment)
       await db.from('auto_comment_posts').insert({
         job_id: job.id,
-        linkedin_account_id: accountRowId,
+        linkedin_account_id: ctx.account_row_id,
         post_url: p.post_url,
         social_id: p.social_id,
         post_author: p.author_name,
         post_content: p.text,
-        language,
-        mood,
-        strategy: `${strat.strategy} — ${strat.description}`.slice(0, 1000),
-        comment,
+        language: gen.language,
+        mood: gen.mood,
+        strategy: `${gen.strategy} — ${gen.description}`.slice(0, 1000),
+        comment: gen.comment,
         status: 'posted',
         commented_at: new Date().toISOString(),
       })
-      result.commented++
-
-      // Human-like pause before the next comment (skip after the last one).
-      if (i < fresh.length - 1) {
-        await sleep(minDelayMs + Math.floor(Math.random() * Math.max(0, maxDelayMs - minDelayMs)))
-      }
+      commented++
+      if (i < posts.length - 1) await sleep(4000 + Math.floor(Math.random() * 4000))
     } catch (err) {
-      result.errors.push(`${p.author_name || p.post_url}: ${String(err)}`)
-      // Record the failure so it shows in the tracking table and isn't retried blindly.
+      errors.push(`${p.author_name || p.post_url}: ${String(err)}`)
       await db.from('auto_comment_posts').insert({
         job_id: job.id,
-        linkedin_account_id: accountRowId,
+        linkedin_account_id: ctx.account_row_id,
         post_url: p.post_url,
         social_id: p.social_id,
         post_author: p.author_name,
@@ -252,6 +271,5 @@ export async function runAutoCommentJob(
       })
     }
   }
-
-  return result
+  return { commented, errors }
 }

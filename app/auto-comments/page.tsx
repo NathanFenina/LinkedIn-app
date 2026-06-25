@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { AutoCommentJob, AutoCommentPost, LinkedInAccount } from '@/types'
-import { Plus, Play, Trash2, Eye, Power, ExternalLink, Save, MessageCircle } from 'lucide-react'
+import { Plus, Play, Trash2, Eye, Power, ExternalLink, Save, MessageCircle, Square } from 'lucide-react'
 import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
@@ -13,12 +13,22 @@ interface PreviewRow {
   comment: string
 }
 
+// Pause "humaine" entre deux commentaires, ~3 min avec un peu d'aléatoire.
+const WAIT_MIN_S = 150
+const WAIT_MAX_S = 210
+
 export default function AutoCommentsPage() {
   const [jobs, setJobs] = useState<AutoCommentJob[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const [previewByJob, setPreviewByJob] = useState<Record<string, PreviewRow[]>>({})
   const [postsByJob, setPostsByJob] = useState<Record<string, AutoCommentPost[]>>({})
+
+  // run-loop state
+  const [runningJobId, setRunningJobId] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [countdown, setCountdown] = useState(0)
+  const stopRef = useRef(false)
 
   // active account persona
   const [account, setAccount] = useState<LinkedInAccount | null>(null)
@@ -114,36 +124,102 @@ export default function AutoCommentsPage() {
     await fetch(`/api/auto-comments/${id}`, { method: 'DELETE' })
   }
 
-  const run = async (id: string, dryRun: boolean) => {
+  const simulate = async (id: string) => {
     setBusyId(id)
-    setMsg(dryRun ? 'Simulation en cours…' : 'Commentaires en cours… (ne ferme pas l\'onglet)')
+    setMsg('Simulation en cours… (génération sans publication)')
     try {
-      const res = await fetch(`/api/auto-comments/${id}/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dry_run: dryRun }),
-      })
+      const res = await fetch(`/api/auto-comments/${id}/preview`, { method: 'POST' })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      if (dryRun) {
-        setPreviewByJob((prev) => ({ ...prev, [id]: data.preview || [] }))
-        setMsg(
-          `Aperçu : ${data.preview?.length || 0} commentaires générés · ${data.posts_found} posts trouvés · ${data.already_commented} déjà commentés`
-        )
-      } else {
-        setMsg(
-          `${data.commented} commentaires postés · ${data.posts_found} posts trouvés · ${data.already_commented} déjà commentés${
-            data.errors?.length ? ` · ${data.errors.length} erreurs` : ''
-          }`
-        )
-        loadPosts(id, true)
-      }
-      fetchJobs()
+      setPreviewByJob((prev) => ({ ...prev, [id]: data.preview || [] }))
+      setMsg(
+        `Aperçu : ${data.preview?.length || 0} commentaires générés · ${data.posts_found} posts trouvés · ${data.already_commented} déjà commentés`
+      )
     } catch (err) {
       setMsg(`Erreur: ${String(err)}`)
     } finally {
       setBusyId(null)
     }
+  }
+
+  // cancellable ~3 min wait with a live countdown; resolves early if stopped.
+  const waitWithCountdown = (seconds: number) =>
+    new Promise<void>((resolve) => {
+      let remaining = seconds
+      setCountdown(remaining)
+      const t = setInterval(() => {
+        remaining -= 1
+        if (stopRef.current || remaining <= 0) {
+          clearInterval(t)
+          setCountdown(0)
+          resolve()
+        } else {
+          setCountdown(remaining)
+        }
+      }, 1000)
+    })
+
+  const launch = async (id: string) => {
+    stopRef.current = false
+    setRunningJobId(id)
+    setProgress(null)
+    setMsg('Construction de la file…')
+    try {
+      const q = await fetch(`/api/auto-comments/${id}/queue`, { method: 'POST' }).then((r) => r.json())
+      if (q.error) throw new Error(q.error)
+      const queue: { id: string }[] = q.queue || []
+      if (!queue.length) {
+        setMsg(`Rien à commenter (${q.posts_found} trouvés, ${q.already_commented} déjà faits).`)
+        setRunningJobId(null)
+        return
+      }
+      setProgress({ done: 0, total: queue.length })
+
+      let posted = 0
+      for (let i = 0; i < queue.length; i++) {
+        if (stopRef.current) {
+          setMsg(`Arrêté. ${posted} postés, ${queue.length - i} restants en file (reprenables).`)
+          break
+        }
+        setMsg(`Commentaire ${i + 1}/${queue.length} en cours…`)
+        try {
+          const res = await fetch(`/api/auto-comments/${id}/step`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ post_id: queue[i].id }),
+          }).then((r) => r.json())
+          if (res.status === 'posted' && !res.skipped) posted++
+        } catch {
+          /* erreur loggée côté serveur dans la ligne */
+        }
+        setProgress({ done: i + 1, total: queue.length })
+        await loadPosts(id, true)
+
+        if (i < queue.length - 1 && !stopRef.current) {
+          const wait = WAIT_MIN_S + Math.floor(Math.random() * (WAIT_MAX_S - WAIT_MIN_S))
+          await waitWithCountdown(wait)
+        }
+      }
+      if (!stopRef.current) setMsg(`Terminé : ${posted} commentaires postés.`)
+    } catch (err) {
+      setMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setRunningJobId(null)
+      setProgress(null)
+      setCountdown(0)
+      fetchJobs()
+    }
+  }
+
+  const stop = () => {
+    stopRef.current = true
+    setMsg('Arrêt demandé… (le commentaire en cours se termine, puis ça stoppe)')
+  }
+
+  const clearQueue = async (id: string) => {
+    if (!confirm('Vider la file en attente de ce job ?')) return
+    await fetch(`/api/auto-comments/${id}/step`, { method: 'DELETE' })
+    loadPosts(id, true)
   }
 
   const loadPosts = async (id: string, force = false) => {
@@ -158,6 +234,8 @@ export default function AutoCommentsPage() {
     const data = await fetch(`/api/auto-comments/${id}/posts`).then((r) => r.json())
     if (Array.isArray(data)) setPostsByJob((prev) => ({ ...prev, [id]: data }))
   }
+
+  const fmtCountdown = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
   return (
     <>
@@ -206,7 +284,7 @@ export default function AutoCommentsPage() {
               </div>
               <textarea
                 rows={4}
-                placeholder="Identité / expertise (le 'role' du workflow n8n). Ex: Expert SEO Automation & IA, 12 ans d'expérience, style direct et concret…"
+                placeholder="Identité / expertise (le champ 'role' du workflow n8n). Laisse VIDE pour reproduire exactement le n8n actuel."
                 value={personaIdentity}
                 onChange={(e) => setPersonaIdentity(e.target.value)}
                 className="w-full border border-gray-200 rounded px-2 py-2 text-sm resize-none"
@@ -273,7 +351,7 @@ export default function AutoCommentsPage() {
               Créer
             </button>
           </div>
-          {msg && <span className="text-xs text-gray-500 ml-1">{msg}</span>}
+          {msg && <span className="text-xs text-gray-600 ml-1">{msg}</span>}
         </div>
 
         {/* Jobs list */}
@@ -286,6 +364,7 @@ export default function AutoCommentsPage() {
             jobs.map((j) => {
               const preview = previewByJob[j.id]
               const posts = postsByJob[j.id]
+              const isRunning = runningJobId === j.id
               return (
                 <div
                   key={j.id}
@@ -325,42 +404,66 @@ export default function AutoCommentsPage() {
                         )}
                       </div>
                       <p className="text-[11px] text-gray-500 mt-1 truncate">{j.search_url}</p>
+                      {isRunning && progress && (
+                        <p className="text-[11px] text-blue-700 mt-1 font-medium">
+                          {progress.done}/{progress.total} traités
+                          {countdown > 0 && ` · prochain dans ${fmtCountdown(countdown)}`}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                      <button
-                        onClick={() => run(j.id, true)}
-                        disabled={busyId !== null}
-                        className="text-[11px] px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 inline-flex items-center gap-1"
-                        title="Génère les commentaires sans rien poster"
-                      >
-                        <Eye className="w-3 h-3" /> Simuler
-                      </button>
-                      <button
-                        onClick={() => run(j.id, false)}
-                        disabled={busyId !== null || !j.active}
-                        className="text-[11px] px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
-                      >
-                        <Play className={`w-3 h-3 ${busyId === j.id ? 'animate-pulse' : ''}`} /> Lancer
-                      </button>
-                      <button
-                        onClick={() => update(j.id, { active: !j.active })}
-                        className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
-                        title={j.active ? 'Pause' : 'Activer'}
-                      >
-                        <Power className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => loadPosts(j.id)}
-                        className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
-                      >
-                        Historique
-                      </button>
-                      <button
-                        onClick={() => remove(j.id)}
-                        className="text-[11px] px-1.5 py-1 text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      {isRunning ? (
+                        <button
+                          onClick={stop}
+                          className="text-[11px] px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 inline-flex items-center gap-1"
+                        >
+                          <Square className="w-3 h-3" /> Stop
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => simulate(j.id)}
+                            disabled={busyId !== null || runningJobId !== null}
+                            className="text-[11px] px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 inline-flex items-center gap-1"
+                            title="Génère les commentaires sans rien poster"
+                          >
+                            <Eye className="w-3 h-3" /> Simuler
+                          </button>
+                          <button
+                            onClick={() => launch(j.id)}
+                            disabled={busyId !== null || runningJobId !== null || !j.active}
+                            className="text-[11px] px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
+                          >
+                            <Play className="w-3 h-3" /> Lancer
+                          </button>
+                          <button
+                            onClick={() => update(j.id, { active: !j.active })}
+                            className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
+                            title={j.active ? 'Pause' : 'Activer'}
+                          >
+                            <Power className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => loadPosts(j.id)}
+                            className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
+                          >
+                            Historique
+                          </button>
+                          <button
+                            onClick={() => clearQueue(j.id)}
+                            className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
+                            title="Vider la file en attente"
+                          >
+                            Vider file
+                          </button>
+                          <button
+                            onClick={() => remove(j.id)}
+                            className="text-[11px] px-1.5 py-1 text-gray-400 hover:text-red-600"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -384,7 +487,7 @@ export default function AutoCommentsPage() {
                   {posts && (
                     <div className="mt-2 border-t border-gray-100 pt-2">
                       <p className="text-[11px] font-medium text-gray-700 mb-1">
-                        {posts.length} posts traités
+                        {posts.length} posts dans l&apos;historique
                       </p>
                       <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
                         {posts.map((p) => (
@@ -397,10 +500,12 @@ export default function AutoCommentsPage() {
                                     ? 'bg-green-100 text-green-700'
                                     : p.status === 'rejected'
                                       ? 'bg-red-100 text-red-700'
-                                      : 'bg-gray-100 text-gray-600'
+                                      : p.status === 'review'
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-gray-100 text-gray-600'
                                 }`}
                               >
-                                {p.status}
+                                {p.status === 'review' ? 'en file' : p.status}
                               </span>
                               {p.post_url && (
                                 <a
