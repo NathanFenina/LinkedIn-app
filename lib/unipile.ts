@@ -13,7 +13,10 @@ async function unipileFetch(path: string, options?: RequestInit) {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Unipile API error ${res.status}: ${text}`)
+    const retryAfter = res.headers.get('retry-after')
+    throw new Error(
+      `Unipile API error ${res.status}${retryAfter ? ` (retry-after ${retryAfter}s)` : ''}: ${text}`
+    )
   }
   return res.json()
 }

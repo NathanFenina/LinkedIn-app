@@ -250,7 +250,12 @@ export async function likeAndComment(
     }
     await sleep(2500) // breathing room so the like+comment burst doesn't trip 429
   }
-  await callWithRetry(() => sendPostComment(ctx.unipile_account_id, socialId, comment))
+  try {
+    await callWithRetry(() => sendPostComment(ctx.unipile_account_id, socialId, comment))
+  } catch (e) {
+    // label the failing action so the in-app log is unambiguous (it's the comment endpoint)
+    throw new Error(`commentaire → ${String(e).replace(/^Error:\s*/, '')}`)
+  }
 }
 
 // Cron path: process a small batch in one pass. Kept under the serverless time
