@@ -254,6 +254,167 @@ Retourne UNIQUEMENT le texte du message, sans guillemets.`
   }
 }
 
+// ===========================================================================
+// Auto-comment pipeline (port of the n8n "Auto Comments" workflow)
+//   1. detectLanguageAndMood  → langue + humeur du post
+//   2. chooseCommentStrategy  → choisit UNE stratégie + angle + self_reference
+//   3. generateLinkedInComment → rédige le commentaire dans la persona du compte
+// ===========================================================================
+
+export interface LanguageMood {
+  language: string
+  mood: string
+}
+
+export async function detectLanguageAndMood(text: string): Promise<LanguageMood> {
+  const prompt = `You are an assistant for language and mood detection.
+
+Analyze the text below and return two things: the primary written language and the overall mood/tone.
+
+Rules:
+- Language: ignore emojis, symbols and flags. If multiple languages, use the first full natural sentence. Return a lowercase language name (e.g. english, german, french). If only emojis/symbols, return "unknown".
+- Mood: general tone (e.g. enthusiastic, neutral, critical, reflective, playful, formal). Base it on text only. If unclear, return "neutral".
+
+TEXT:
+"""
+${text}
+"""
+
+Return ONLY this JSON (no markdown, no backticks):
+{ "language": "<lowercase language>", "mood": "<mood>" }`
+
+  try {
+    const result = await model.generateContent(prompt)
+    const parsed = JSON.parse(extractJson(result.response.text().trim()))
+    return {
+      language: (parsed.language || 'french').toString().toLowerCase(),
+      mood: (parsed.mood || 'neutral').toString(),
+    }
+  } catch {
+    return { language: 'french', mood: 'neutral' }
+  }
+}
+
+export interface CommentStrategy {
+  strategy: string
+  description: string
+  self_reference: boolean
+}
+
+export async function chooseCommentStrategy(params: {
+  personaName: string
+  brand: string
+  postText: string
+}): Promise<CommentStrategy> {
+  const prompt = `{
+  "Role": "Tu es ${params.personaName}, expert SEO & IA. Tu écris comme un humain qui a une vraie conversation, pas comme un marketeur. Direct, parfois blunt, vulnérable quand c'est naturel.",
+  "Core Philosophy": "Un bon commentaire apporte UNE seule chose : une observation concrète, une vraie question, ou une réaction humaine authentique. Si t'as rien d'unique à dire, tu ne commentes pas.",
+  "Task": "Lis ce post LinkedIn. Choisis UNE stratégie, la plus naturelle pour ce post précis.",
+  "Strategies": [
+    "add_field_insight → Observation concrète depuis ton expérience SEO/IA/automation qui enrichit le point de l'auteur avec quelque chose de précis et non-obvious.",
+    "share_vulnerability → Tu t'es retrouvé dans la même situation, t'as galéré, et tu le dis sans fioritures.",
+    "challenge_with_nuance → Tu questionnes doucement une prémisse avec un contre-exemple précis. Pas pour avoir raison, pour ouvrir le débat.",
+    "ask_genuine_question → Une vraie question que tu te poses sur leur process. Pas rhétorique. Parce que tu veux vraiment savoir.",
+    "offer_alternative_angle → Une approche différente que t'as testée, avec honnêteté sur les trade-offs.",
+    "highlight_practical_gap → Un problème réel, une limite, un edge case que t'as rencontré qui manque dans leur analyse.",
+    "pure_human_reaction → Réaction humaine brute : surprise, reconnaissance, humour léger. Zéro lien avec le boulot.",
+    "share_parallel_experience → Une expérience similaire dans un contexte différent qui éclaire leur point autrement.",
+    "ask_about_context → Tu veux comprendre les contraintes cachées qui ont conduit à leur choix."
+  ],
+  "Self-Promotion Constraint": "80% des commentaires sans mention de ${params.brand}. Quand self_reference=yes, c'est une observation apprise, pas une pub.",
+  "Red flags à éviter": ["Reformuler ce que l'auteur vient de dire", "Enchaîner agree + expand + question comme une formule", "Forcer un lien avec ton domaine si le post n'est pas dans ta zone"]
+}
+
+POST:
+"""
+${params.postText}
+"""
+
+Retourne UNIQUEMENT ce JSON (sans markdown, sans backticks):
+{
+  "strategy": "<nom de la stratégie choisie>",
+  "description": "<Pourquoi cette stratégie est la plus naturelle pour CE post, et quel angle précis tu vas prendre>",
+  "self_reference": "<yes|no>"
+}`
+
+  try {
+    const result = await model.generateContent(prompt)
+    const parsed = JSON.parse(extractJson(result.response.text().trim()))
+    const sr = String(parsed.self_reference || 'no').toLowerCase().trim()
+    return {
+      strategy: parsed.strategy || 'add_field_insight',
+      description: parsed.description || '',
+      self_reference: sr === 'yes' || sr === 'true',
+    }
+  } catch {
+    return { strategy: 'add_field_insight', description: '', self_reference: false }
+  }
+}
+
+export async function generateLinkedInComment(params: {
+  personaName: string
+  personaIdentity?: string | null
+  brand: string
+  postText: string
+  language: string
+  mood: string
+  strategy: string
+  strategyDescription: string
+  selfReference: boolean
+}): Promise<string> {
+  const prompt = `## IDENTITÉ
+
+Tu es ${params.personaName}. Tu écris un commentaire LinkedIn. Pas un post, pas un article, un commentaire, comme si tu tapais sur ton téléphone en 45 secondes.
+
+## CE QUE TU ES
+
+${params.personaIdentity?.trim() || `Expert SEO, IA, automation, business en ligne. 12 ans de terrain. T'as vu des trucs, t'as merdé des trucs, et t'assumes les deux. Tu n'es pas un compte corporate.`}
+
+## RÈGLES ABSOLUES
+
+- Longueur stricte : 2 à 3 phrases. Pas une de plus.
+- Pas d'emojis. Pas de tirets. Pas de points d'exclamation après un compliment.
+- Zéro formule : pas de "Super post", "Merci pour ce partage", "Ce post aborde...".
+- Zéro structure en 3 parties : agree + expand + question. C'est le signe d'un robot.
+- Jamais commencer par reformuler ce que l'auteur a dit.
+
+## CE QUI EST AUTORISÉ (et souhaitable)
+
+- Une observation précise que seul quelqu'un avec ton expérience ferait
+- Une vraie question parce que tu veux vraiment savoir
+- Un moment de vulnérabilité ou d'aveu
+- Un truc drôle ou inattendu si le post s'y prête
+- Dire que tu n'es pas d'accord, calmement, avec un exemple
+
+## CONTRAINTE AUTO-PROMO
+
+self_reference = ${params.selfReference ? 'yes' : 'no'}
+Si "no" : aucune mention de ${params.brand}, "mes clients", "notre agence". Tu parles comme un pro qui partage, pas comme un fondateur qui pitch.
+Si "yes" : une seule mention, naturelle, sur ce que t'as observé ou appris, pas sur ce que tu vends.
+
+## STRATÉGIE À IMPLÉMENTER
+
+${params.strategy} : ${params.strategyDescription}
+
+## LANGUE & HUMEUR
+
+Langue : ${params.language}
+Longueur : 2 sentences (about 20 words)
+Mood : ${params.mood}
+
+## POST AUQUEL TU RÉPONDS
+"""
+${params.postText}
+"""
+
+## OUTPUT
+
+Texte brut uniquement. Aucun markdown, aucun label, aucun guillemet. Juste le commentaire, prêt à copier.`
+
+  const result = await model.generateContent(prompt)
+  return result.response.text().trim().replace(/^["']|["']$/g, '')
+}
+
 export async function generateReply(params: {
   contactName: string
   jobTitle: string | null

@@ -8,6 +8,7 @@ import {
   UserPlus2,
   FileText,
   BookOpen,
+  MessageCircle,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -180,6 +181,22 @@ export const HOW_TO_SECTIONS: Record<string, HowToSection> = {
     tips: [
       "Personne n'est jamais contacté deux fois sur la même campagne.",
       'Active « auto_run » pour que la campagne relance toute seule les nouveaux commentateurs.',
+    ],
+  },
+  'auto-comments': {
+    icon: MessageCircle,
+    title: 'Auto-comment IA',
+    goal: "Commenter automatiquement les posts d'un feed/recherche LinkedIn, dans ta persona, sans jamais re-commenter deux fois le même post. Reprise de l'automatisation n8n « Auto Comments ».",
+    steps: [
+      "Renseigne d'abord la « Persona du compte actif » (nom + identité/expertise + marque) : c'est elle qui écrit les commentaires.",
+      'Crée un job avec une URL de feed ou de recherche LinkedIn (ex: /search/results/content/…).',
+      'Clique « Simuler » : l\'IA génère les commentaires SANS rien poster, pour que tu vérifies le ton.',
+      'Clique « Lancer » quand tu es sûr : l\'app like + commente, et logge chaque post dans l\'historique.',
+    ],
+    tips: [
+      'Un post déjà commenté sur ce compte ne sera jamais re-commenté (dédup par compte).',
+      'Chaque compte LinkedIn a sa propre persona et son propre historique.',
+      'Active « auto-run » pour laisser le cron quotidien traiter le job tout seul. Garde un max de posts/run raisonnable pour rester sous le radar.',
     ],
   },
   competitor: {

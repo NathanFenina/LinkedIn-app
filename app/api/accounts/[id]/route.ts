@@ -13,6 +13,10 @@ export async function PATCH(
   if (typeof body.unipile_account_id === 'string')
     updates.unipile_account_id = body.unipile_account_id.trim()
   if (typeof body.is_default === 'boolean') updates.is_default = body.is_default
+  if (typeof body.persona_name === 'string') updates.persona_name = body.persona_name.trim() || null
+  if (typeof body.persona_identity === 'string')
+    updates.persona_identity = body.persona_identity.trim() || null
+  if (typeof body.persona_brand === 'string') updates.persona_brand = body.persona_brand.trim() || null
 
   if (updates.is_default === true) {
     await db.from('linkedin_accounts').update({ is_default: false }).neq('id', id)

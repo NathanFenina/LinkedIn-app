@@ -241,6 +241,62 @@ export async function sendPostComment(accountId: string, socialId: string, text:
   })
 }
 
+// Like (or other reaction) a post. Mirrors the n8n "Send reaction" node:
+//   POST /posts/reaction  body: { account_id, post_id, reaction_type }
+export async function sendPostReaction(
+  accountId: string,
+  postId: string,
+  reactionType = 'like'
+) {
+  return unipileFetch(`/posts/reaction`, {
+    method: 'POST',
+    body: JSON.stringify({ account_id: accountId, post_id: postId, reaction_type: reactionType }),
+  })
+}
+
+// Run a raw LinkedIn search/feed URL through Unipile and get back the posts.
+// Mirrors the n8n "LinkedIn Search" node: POST /linkedin/search?account_id=...&cursor=...
+// with body { url: "<the search/feed URL>" }. Returns the posts + a pagination cursor.
+export async function searchLinkedInByUrl(
+  accountId: string,
+  searchUrl: string,
+  cursor?: string
+): Promise<{ items: RawPost[]; cursor?: string }> {
+  const params = new URLSearchParams({ account_id: accountId })
+  if (cursor) params.set('cursor', cursor)
+  const data = await unipileFetch(`/linkedin/search?${params.toString()}`, {
+    method: 'POST',
+    body: JSON.stringify({ url: searchUrl }),
+  })
+  return {
+    items: (data.items || []) as RawPost[],
+    cursor: (data.cursor as string | undefined) || undefined,
+  }
+}
+
+// Normalize a post coming from the search/feed endpoint into the fields the
+// auto-comment engine needs. (LinkedIn post URLs carry tracking query params we drop.)
+export interface NormalizedFeedPost {
+  social_id: string | null
+  post_url: string | null
+  text: string | null
+  author_name: string | null
+  author_id: string | null
+}
+
+export function normalizeFeedPost(p: RawPost): NormalizedFeedPost {
+  // The search payload nests author as an object with id/name (unlike comment
+  // payloads where author is a plain string), and exposes share_url + social_id.
+  const author = (p.author || {}) as { name?: string; id?: string; provider_id?: string }
+  return {
+    social_id: p.social_id || p.id || null,
+    post_url: (p.share_url || '').split('?')[0] || null,
+    text: p.text || null,
+    author_name: author.name || null,
+    author_id: author.id || author.provider_id || null,
+  }
+}
+
 // Extract a LinkedIn post identifier from a post URL, in the exact format
 // Unipile's /posts/{post_id} endpoint expects. Per Unipile docs:
 //   - URLs containing "activity" → raw numeric ID  (e.g. "7332661864792854528")

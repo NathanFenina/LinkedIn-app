@@ -92,6 +92,45 @@ export interface LinkedInAccount {
   label: string
   unipile_account_id: string
   is_default: boolean
+  persona_name: string | null
+  persona_identity: string | null
+  persona_brand: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Feature — Auto-comment IA (migration n8n)
+export interface AutoCommentJob {
+  id: string
+  label: string | null
+  search_url: string
+  like_post: boolean
+  max_posts: number
+  active: boolean
+  auto_run: boolean
+  last_run_at: string | null
+  linkedin_account_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AutoCommentPostStatus = 'review' | 'ready' | 'posted' | 'rejected' | 'skipped'
+
+export interface AutoCommentPost {
+  id: string
+  job_id: string | null
+  linkedin_account_id: string | null
+  post_url: string
+  social_id: string | null
+  post_author: string | null
+  post_content: string | null
+  language: string | null
+  mood: string | null
+  strategy: string | null
+  comment: string | null
+  status: AutoCommentPostStatus
+  error: string | null
+  commented_at: string | null
   created_at: string
   updated_at: string
 }

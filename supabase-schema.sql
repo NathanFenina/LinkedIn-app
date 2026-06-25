@@ -296,4 +296,69 @@ ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ;
 ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS invitation_message TEXT;
 CREATE INDEX IF NOT EXISTS idx_visitors_score ON profile_visitors(score DESC);
 
+-- ===========================================================================
+-- Feature: Auto-comment IA (migration depuis n8n "Auto Comments")
+--   - 1 persona par compte LinkedIn (Nathan, Lucas, ...) stockée sur le compte
+--   - On donne une URL de feed/recherche LinkedIn → l'app récupère les posts,
+--     déduplique vs ce qui a déjà été commenté SUR CE COMPTE, génère un
+--     commentaire (langue+humeur → stratégie → rédaction persona) et le poste.
+--   - Toutes les traces restent visibles dans l'app (table auto_comment_posts).
+-- ===========================================================================
+
+-- Persona par compte LinkedIn (injectée dans les prompts IA)
+ALTER TABLE linkedin_accounts ADD COLUMN IF NOT EXISTS persona_name TEXT;
+ALTER TABLE linkedin_accounts ADD COLUMN IF NOT EXISTS persona_identity TEXT;
+ALTER TABLE linkedin_accounts ADD COLUMN IF NOT EXISTS persona_brand TEXT DEFAULT 'Decupler';
+
+-- Un "job" = une URL de feed/recherche LinkedIn à traiter pour le compte actif.
+CREATE TABLE IF NOT EXISTS auto_comment_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label TEXT,
+  search_url TEXT NOT NULL,
+  like_post BOOLEAN DEFAULT true,
+  max_posts INTEGER DEFAULT 5,
+  active BOOLEAN DEFAULT true,
+  auto_run BOOLEAN DEFAULT false,
+  last_run_at TIMESTAMPTZ,
+  linkedin_account_id UUID REFERENCES linkedin_accounts(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS auto_comment_jobs_updated_at ON auto_comment_jobs;
+CREATE TRIGGER auto_comment_jobs_updated_at BEFORE UPDATE ON auto_comment_jobs
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_auto_comment_jobs_account ON auto_comment_jobs(linkedin_account_id);
+
+-- Une ligne par post traité (équivalent de l'onglet "Posts Commented" du Sheet).
+CREATE TABLE IF NOT EXISTS auto_comment_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id UUID REFERENCES auto_comment_jobs(id) ON DELETE SET NULL,
+  linkedin_account_id UUID REFERENCES linkedin_accounts(id) ON DELETE SET NULL,
+  post_url TEXT NOT NULL,
+  social_id TEXT,
+  post_author TEXT,
+  post_content TEXT,
+  language TEXT,
+  mood TEXT,
+  strategy TEXT,
+  comment TEXT,
+  status TEXT DEFAULT 'review' CHECK (status IN ('review', 'ready', 'posted', 'rejected', 'skipped')),
+  error TEXT,
+  commented_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS auto_comment_posts_updated_at ON auto_comment_posts;
+CREATE TRIGGER auto_comment_posts_updated_at BEFORE UPDATE ON auto_comment_posts
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Dédup "déjà commenté" à l'échelle du COMPTE (= 1 fichier par compte).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auto_comment_posts_account_url
+  ON auto_comment_posts(linkedin_account_id, post_url);
+CREATE INDEX IF NOT EXISTS idx_auto_comment_posts_job ON auto_comment_posts(job_id);
+CREATE INDEX IF NOT EXISTS idx_auto_comment_posts_status ON auto_comment_posts(status);
+
 NOTIFY pgrst, 'reload schema';
