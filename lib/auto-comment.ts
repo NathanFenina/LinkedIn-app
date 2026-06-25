@@ -204,23 +204,31 @@ export async function generateCommentForPost(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-// LinkedIn/Unipile throttling (429) or transient server errors → retry later,
-// don't burn the post. Genuine errors (400, empty comment…) are not retryable.
+// A 429 / throttle / transient error means "retry LATER" (next run), NOT now —
+// it lets us keep the post in the queue instead of burning it as 'rejected'.
 export function isRetryableError(err: unknown): boolean {
   return /429|too_many_requests|temporarily|rate.?limit|50[234]|ECONNRESET|ETIMEDOUT/i.test(
     String(err)
   )
 }
 
-async function callWithRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+// Only NETWORK / 5xx blips are worth an immediate in-call retry. We deliberately
+// do NOT retry a 429 in the moment: hammering a LinkedIn throttle a few seconds
+// later just extends the block and risks an automation flag. On 429 we fail fast
+// and the post stays in the queue for the next (well-spaced) run.
+function isImmediatelyRetryable(err: unknown): boolean {
+  return /50[234]|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(String(err))
+}
+
+async function callWithRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
   let lastErr: unknown
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn()
     } catch (e) {
       lastErr = e
-      if (!isRetryableError(e) || i === attempts - 1) throw e
-      await sleep(3000 * (i + 1)) // 3s, 6s backoff on 429/5xx
+      if (!isImmediatelyRetryable(e) || i === attempts - 1) throw e
+      await sleep(4000 * (i + 1))
     }
   }
   throw lastErr
