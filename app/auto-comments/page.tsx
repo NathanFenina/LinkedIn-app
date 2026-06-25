@@ -253,6 +253,8 @@ export default function AutoCommentsPage() {
           if (res.status === 'posted' && !res.skipped) {
             posted++
             appendLog(id, `✅ ${res.author || 'auteur'} → ${res.comment || ''}`)
+          } else if (res.status === 'retry') {
+            appendLog(id, `⏳ rate-limit (429) — gardé en file, réessai au prochain run`)
           } else if (res.status === 'rejected') {
             appendLog(id, `❌ rejeté : ${res.error || 'erreur inconnue'}`)
           } else if (res.skipped) {
@@ -291,7 +293,8 @@ export default function AutoCommentsPage() {
   }
 
   const clearQueue = async (id: string) => {
-    if (!confirm('Vider la file en attente de ce job ?')) return
+    if (!confirm('Réinitialiser : efface la file en attente et les échecs (garde les posts publiés) ?'))
+      return
     await fetch(`/api/auto-comments/${id}/step`, { method: 'DELETE' })
     loadPosts(id, true)
   }
@@ -526,9 +529,9 @@ export default function AutoCommentsPage() {
                           <button
                             onClick={() => clearQueue(j.id)}
                             className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
-                            title="Vider la file en attente"
+                            title="Efface la file en attente + les échecs (garde les posts publiés)"
                           >
-                            Vider file
+                            Réinitialiser
                           </button>
                           <button
                             onClick={() => remove(j.id)}

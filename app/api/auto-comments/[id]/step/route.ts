@@ -3,6 +3,7 @@ import {
   resolveAccountContext,
   generateCommentForPost,
   likeAndComment,
+  isRetryableError,
 } from '@/lib/auto-comment'
 
 export const maxDuration = 120
@@ -72,18 +73,27 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
         strategy: gen.strategy,
       })
     } catch (err) {
+      // Transient throttling (429/5xx) → keep the post in the queue ('review')
+      // so it's retried later instead of being permanently rejected.
+      const retry = isRetryableError(err)
       await db
         .from('auto_comment_posts')
-        .update({ status: 'rejected', error: String(err).slice(0, 500) })
+        .update({ status: retry ? 'review' : 'rejected', error: String(err).slice(0, 500) })
         .eq('id', post_id)
-      return Response.json({ status: 'rejected', post_id, error: String(err) })
+      return Response.json({
+        status: retry ? 'retry' : 'rejected',
+        post_id,
+        error: String(err),
+      })
     }
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }
 }
 
-// Vider la file en attente (annule les 'review' non encore postés de ce job).
+// "Réinitialiser" : efface la file en attente ('review') ET les échecs
+// ('rejected') de ce job, en gardant l'historique des 'posted'. Les posts
+// effacés redeviennent donc traitables au prochain "Lancer".
 export async function DELETE(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
   try {
@@ -92,7 +102,7 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
       .from('auto_comment_posts')
       .delete()
       .eq('job_id', id)
-      .eq('status', 'review')
+      .in('status', ['review', 'rejected'])
     if (error) throw error
     return Response.json({ ok: true })
   } catch (err) {

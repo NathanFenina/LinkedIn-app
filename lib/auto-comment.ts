@@ -202,7 +202,32 @@ export async function generateCommentForPost(
   return { language, mood, strategy: strat.strategy, description: strat.description, comment }
 }
 
-// Like (optional) + comment a single post via Unipile.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// LinkedIn/Unipile throttling (429) or transient server errors → retry later,
+// don't burn the post. Genuine errors (400, empty comment…) are not retryable.
+export function isRetryableError(err: unknown): boolean {
+  return /429|too_many_requests|temporarily|rate.?limit|50[234]|ECONNRESET|ETIMEDOUT/i.test(
+    String(err)
+  )
+}
+
+async function callWithRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      lastErr = e
+      if (!isRetryableError(e) || i === attempts - 1) throw e
+      await sleep(3000 * (i + 1)) // 3s, 6s backoff on 429/5xx
+    }
+  }
+  throw lastErr
+}
+
+// Like (optional) + comment a single post via Unipile, with a small gap between
+// the two calls and a retry on transient throttling.
 export async function likeAndComment(
   ctx: AccountContext,
   job: JobLike,
@@ -211,15 +236,14 @@ export async function likeAndComment(
 ): Promise<void> {
   if (job.like_post) {
     try {
-      await sendPostReaction(ctx.unipile_account_id, socialId, 'like')
+      await callWithRetry(() => sendPostReaction(ctx.unipile_account_id, socialId, 'like'))
     } catch {
       // a failed like shouldn't block the comment
     }
+    await sleep(2500) // breathing room so the like+comment burst doesn't trip 429
   }
-  await sendPostComment(ctx.unipile_account_id, socialId, comment)
+  await callWithRetry(() => sendPostComment(ctx.unipile_account_id, socialId, comment))
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 // Cron path: process a small batch in one pass. Kept under the serverless time
 // budget by using short delays (unattended runs don't need the human-like 3 min).
@@ -259,16 +283,20 @@ export async function runAutoCommentBatch(
       if (i < posts.length - 1) await sleep(4000 + Math.floor(Math.random() * 4000))
     } catch (err) {
       errors.push(`${p.author_name || p.post_url}: ${String(err)}`)
-      await db.from('auto_comment_posts').insert({
-        job_id: job.id,
-        linkedin_account_id: ctx.account_row_id,
-        post_url: p.post_url,
-        social_id: p.social_id,
-        post_author: p.author_name,
-        post_content: p.text,
-        status: 'rejected',
-        error: String(err).slice(0, 500),
-      })
+      // Transient (429/5xx): don't persist a row → the post stays "unseen" and
+      // is retried on the next run. Genuine error: log it as rejected.
+      if (!isRetryableError(err)) {
+        await db.from('auto_comment_posts').insert({
+          job_id: job.id,
+          linkedin_account_id: ctx.account_row_id,
+          post_url: p.post_url,
+          social_id: p.social_id,
+          post_author: p.author_name,
+          post_content: p.text,
+          status: 'rejected',
+          error: String(err).slice(0, 500),
+        })
+      }
     }
   }
   return { commented, errors }
