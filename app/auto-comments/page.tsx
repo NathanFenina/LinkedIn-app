@@ -23,6 +23,13 @@ export default function AutoCommentsPage() {
   const [msg, setMsg] = useState('')
   const [previewByJob, setPreviewByJob] = useState<Record<string, PreviewRow[]>>({})
   const [postsByJob, setPostsByJob] = useState<Record<string, AutoCommentPost[]>>({})
+  const [logByJob, setLogByJob] = useState<Record<string, string[]>>({})
+
+  const appendLog = (id: string, line: string) => {
+    const stamp = new Date().toLocaleTimeString('fr-FR')
+    setLogByJob((prev) => ({ ...prev, [id]: [...(prev[id] || []), `${stamp}  ${line}`] }))
+  }
+  const resetLog = (id: string) => setLogByJob((prev) => ({ ...prev, [id]: [] }))
 
   // run-loop state
   const [runningJobId, setRunningJobId] = useState<string | null>(null)
@@ -127,15 +134,64 @@ export default function AutoCommentsPage() {
   const simulate = async (id: string) => {
     setBusyId(id)
     setMsg('Simulation en cours… (génération sans publication)')
+    resetLog(id)
+    setPreviewByJob((prev) => ({ ...prev, [id]: [] }))
+    appendLog(id, 'Démarrage de la simulation…')
     try {
       const res = await fetch(`/api/auto-comments/${id}/preview`, { method: 'POST' })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setPreviewByJob((prev) => ({ ...prev, [id]: data.preview || [] }))
-      setMsg(
-        `Aperçu : ${data.preview?.length || 0} commentaires générés · ${data.posts_found} posts trouvés · ${data.already_commented} déjà commentés`
-      )
+      if (!res.body) {
+        // fallback non-stream
+        const data = await res.json().catch(() => ({}))
+        if (data.error) throw new Error(data.error)
+        setPreviewByJob((prev) => ({ ...prev, [id]: data.preview || [] }))
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      const items: PreviewRow[] = []
+      // read the NDJSON stream line by line
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          let ev: Record<string, unknown>
+          try {
+            ev = JSON.parse(line)
+          } catch {
+            continue
+          }
+          if (ev.type === 'log') {
+            appendLog(id, String(ev.message))
+          } else if (ev.type === 'error') {
+            appendLog(id, `❌ ${String(ev.message)}`)
+            setMsg(`Erreur: ${String(ev.message)}`)
+          } else if (ev.type === 'item') {
+            const row: PreviewRow = {
+              post_url: (ev.post_url as string) || null,
+              author: (ev.author as string) || null,
+              strategy: (ev.strategy as string) || '',
+              comment: (ev.comment as string) || '',
+            }
+            items.push(row)
+            appendLog(id, `✅ ${row.author || 'auteur'} → ${row.comment}`)
+            setPreviewByJob((prev) => ({ ...prev, [id]: [...items] }))
+          } else if (ev.type === 'done') {
+            appendLog(
+              id,
+              `Terminé : ${ev.count} commentaires générés (${ev.posts_found} trouvés, ${ev.already_commented} déjà faits).`
+            )
+            setMsg(`Aperçu : ${ev.count} commentaires générés`)
+          }
+        }
+      }
     } catch (err) {
+      appendLog(id, `❌ ${String(err)}`)
       setMsg(`Erreur: ${String(err)}`)
     } finally {
       setBusyId(null)
@@ -163,13 +219,17 @@ export default function AutoCommentsPage() {
     stopRef.current = false
     setRunningJobId(id)
     setProgress(null)
+    resetLog(id)
     setMsg('Construction de la file…')
+    appendLog(id, 'Construction de la file (recherche + dédup)…')
     try {
       const q = await fetch(`/api/auto-comments/${id}/queue`, { method: 'POST' }).then((r) => r.json())
       if (q.error) throw new Error(q.error)
       const queue: { id: string }[] = q.queue || []
+      appendLog(id, `${q.posts_found} trouvés · ${q.already_commented} déjà faits · ${queue.length} en file`)
       if (!queue.length) {
         setMsg(`Rien à commenter (${q.posts_found} trouvés, ${q.already_commented} déjà faits).`)
+        appendLog(id, 'Rien à commenter.')
         setRunningJobId(null)
         return
       }
@@ -179,29 +239,43 @@ export default function AutoCommentsPage() {
       for (let i = 0; i < queue.length; i++) {
         if (stopRef.current) {
           setMsg(`Arrêté. ${posted} postés, ${queue.length - i} restants en file (reprenables).`)
+          appendLog(id, `⏹ Arrêt. ${posted} postés, ${queue.length - i} restants en file.`)
           break
         }
         setMsg(`Commentaire ${i + 1}/${queue.length} en cours…`)
+        appendLog(id, `Commentaire ${i + 1}/${queue.length} en cours…`)
         try {
           const res = await fetch(`/api/auto-comments/${id}/step`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ post_id: queue[i].id }),
           }).then((r) => r.json())
-          if (res.status === 'posted' && !res.skipped) posted++
-        } catch {
-          /* erreur loggée côté serveur dans la ligne */
+          if (res.status === 'posted' && !res.skipped) {
+            posted++
+            appendLog(id, `✅ ${res.author || 'auteur'} → ${res.comment || ''}`)
+          } else if (res.status === 'rejected') {
+            appendLog(id, `❌ rejeté : ${res.error || 'erreur inconnue'}`)
+          } else if (res.skipped) {
+            appendLog(id, `↪︎ déjà posté, ignoré`)
+          }
+        } catch (err) {
+          appendLog(id, `❌ erreur réseau : ${String(err)}`)
         }
         setProgress({ done: i + 1, total: queue.length })
         await loadPosts(id, true)
 
         if (i < queue.length - 1 && !stopRef.current) {
           const wait = WAIT_MIN_S + Math.floor(Math.random() * (WAIT_MAX_S - WAIT_MIN_S))
+          appendLog(id, `⏳ Pause ${fmtCountdown(wait)} avant le prochain…`)
           await waitWithCountdown(wait)
         }
       }
-      if (!stopRef.current) setMsg(`Terminé : ${posted} commentaires postés.`)
+      if (!stopRef.current) {
+        setMsg(`Terminé : ${posted} commentaires postés.`)
+        appendLog(id, `🏁 Terminé : ${posted} commentaires postés.`)
+      }
     } catch (err) {
+      appendLog(id, `❌ ${String(err)}`)
       setMsg(`Erreur: ${String(err)}`)
     } finally {
       setRunningJobId(null)
@@ -466,6 +540,27 @@ export default function AutoCommentsPage() {
                       )}
                     </div>
                   </div>
+
+                  {logByJob[j.id] && logByJob[j.id].length > 0 && (
+                    <div className="mt-2 bg-gray-900 rounded p-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-[11px] font-medium text-gray-300">Logs en direct</p>
+                        <button
+                          onClick={() => resetLog(j.id)}
+                          className="text-[10px] text-gray-400 hover:text-gray-200"
+                        >
+                          effacer
+                        </button>
+                      </div>
+                      <div className="font-mono text-[10.5px] leading-relaxed text-gray-100 max-h-[220px] overflow-y-auto whitespace-pre-wrap">
+                        {logByJob[j.id].map((l, i) => (
+                          <div key={i} className={l.includes('❌') ? 'text-red-300' : l.includes('✅') ? 'text-green-300' : ''}>
+                            {l}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {preview && preview.length > 0 && (
                     <div className="mt-2 bg-gray-50 rounded p-2">
