@@ -473,7 +473,18 @@ export default function AutoCommentsPage() {
                         >
                           URL <ExternalLink className="w-2.5 h-2.5" />
                         </a>
-                        <span className="text-[10px] text-gray-400">max {j.max_posts}/run</span>
+                        <button
+                          onClick={() => {
+                            const v = prompt('Max posts par run (1-50)', String(j.max_posts))
+                            if (v === null) return
+                            const n = Math.max(1, Math.min(50, Number(v) || j.max_posts))
+                            update(j.id, { max_posts: n })
+                          }}
+                          className="text-[10px] text-gray-500 underline decoration-dotted hover:text-blue-600"
+                          title="Modifier le nombre max de posts par run"
+                        >
+                          max {j.max_posts}/run
+                        </button>
                         {j.last_run_at && (
                           <span className="text-[10px] text-gray-400">
                             dernier run {formatDistanceToNow(j.last_run_at)}
