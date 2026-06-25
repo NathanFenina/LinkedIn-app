@@ -514,6 +514,15 @@ export default function AutoCommentsPage() {
                             <Play className="w-3 h-3" /> Lancer
                           </button>
                           <button
+                            onClick={() => update(j.id, { like_post: !j.like_post })}
+                            className={`text-[11px] px-2 py-1 border rounded hover:bg-gray-50 ${
+                              j.like_post ? 'border-blue-300 text-blue-700 bg-blue-50' : 'border-gray-200 text-gray-500'
+                            }`}
+                            title="Liker le post avant de commenter"
+                          >
+                            Like {j.like_post ? 'ON' : 'OFF'}
+                          </button>
+                          <button
                             onClick={() => update(j.id, { active: !j.active })}
                             className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
                             title={j.active ? 'Pause' : 'Activer'}
