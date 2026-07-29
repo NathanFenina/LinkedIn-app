@@ -23,13 +23,16 @@ async function runJob() {
 
   const results = []
   let totalPosted = 0
+  let totalRemaining = 0
   for (const campaign of campaigns) {
     try {
       const r = await runCommentCampaign(db, campaign, { dryRun: false })
       totalPosted += r.comments_posted
+      totalRemaining += r.remaining_today ?? 0
       results.push({
         campaign: campaign.name,
         posted: r.comments_posted,
+        remaining: r.remaining_today,
         skipped: r.skipped_reason,
         errors: r.errors,
       })
@@ -37,7 +40,14 @@ async function runJob() {
       results.push({ campaign: campaign.name, error: String(err) })
     }
   }
-  return { campaigns: campaigns.length, comments_posted: totalPosted, results }
+  // remaining_today = combien il reste à poster aujourd'hui (tous quotas
+  // confondus). Le runner de session s'arrête quand ça tombe à 0.
+  return {
+    campaigns: campaigns.length,
+    comments_posted: totalPosted,
+    remaining_today: totalRemaining,
+    results,
+  }
 }
 
 export async function POST(request: Request) {

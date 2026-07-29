@@ -309,11 +309,13 @@ CREATE TABLE IF NOT EXISTS comment_campaigns (
   member_ids TEXT[] NOT NULL DEFAULT '{}',
   -- Plafond de commentaires postés par jour (garde-fou anti-blocage).
   daily_cap INTEGER NOT NULL DEFAULT 15,
-  -- Nombre max de commentaires postés par exécution du cron (fenêtrage 300s).
-  max_per_run INTEGER NOT NULL DEFAULT 3,
-  -- Délai aléatoire entre 2 commentaires d'un même run (secondes).
-  min_delay_sec INTEGER NOT NULL DEFAULT 60,
-  max_delay_sec INTEGER NOT NULL DEFAULT 110,
+  -- Nb de commentaires postés par appel. 1 = le runner de session (GitHub
+  -- Actions) espace lui-même chaque commentaire (voir min/max_delay_sec).
+  max_per_run INTEGER NOT NULL DEFAULT 1,
+  -- Espacement aléatoire entre 2 commentaires d'une session (secondes).
+  -- Défaut 180–240s = 3–4 min, comme demandé.
+  min_delay_sec INTEGER NOT NULL DEFAULT 180,
+  max_delay_sec INTEGER NOT NULL DEFAULT 240,
   -- Fenêtre horaire de posting (heure locale serveur, UTC). NULL = pas de limite.
   active_hour_start INTEGER,
   active_hour_end INTEGER,

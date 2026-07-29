@@ -1,18 +1,39 @@
-name: Cron Auto-Comments
-# Poste quelques commentaires par heure pour étaler le plafond quotidien sur la
-# journée (plus sûr qu'un batch unique + compatible avec la limite 300s Vercel).
-# Vercel Hobby = 2 crons max, déjà pris par signals + lead-magnets → on passe
-# par GitHub Actions (gratuit).
+name: Auto-Comments Session
+# Session groupée : poste les commentaires du jour un par un, espacés d'un
+# délai aléatoire de 3-4 min — comme une vraie personne qui commente pendant
+# ~1h30. Tourne sur le runner GitHub Actions (jusqu'à 6h/job), donc PAS de
+# serveur à maintenir et PAS de limite 300s Vercel. L'app ne fait que "poste
+# 1 commentaire" à chaque appel ; c'est cette boucle qui gère l'espacement.
 on:
   schedule:
-    - cron: '0 7-19 * * *'  # toutes les heures de 7h à 19h UTC
-  workflow_dispatch:          # déclenchable à la main depuis l'onglet Actions
+    - cron: '0 8 * * *'   # une session par jour, ~8h UTC (déclenchement approximatif)
+  workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
 jobs:
-  trigger:
+  session:
     runs-on: ubuntu-latest
+    timeout-minutes: 350    # garde-fou (< 6h)
     steps:
-      - name: Hit cron endpoint
+      - name: Run commenting session
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsSL -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/comments"
+          for i in $(seq 1 60); do
+            resp=$(curl -fsSL -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$APP_URL/api/cron/comments")
+            echo "[$i] $resp"
+
+            remaining=$(echo "$resp" | grep -o '"remaining_today":[0-9]*' | grep -o '[0-9]*$')
+            posted=$(echo "$resp" | grep -o '"comments_posted":[0-9]*' | grep -o '[0-9]*$')
+
+            # Round sans commentaire posté (plafond atteint, aucun post neuf, ou
+            # plus rien à faire) → fin de session.
+            if [ "${posted:-0}" = "0" ] || [ "${remaining:-0}" = "0" ]; then
+              echo "Session terminée (posted=$posted, remaining=$remaining)."
+              break
+            fi
+
+            # Espacement aléatoire 180-240s (3-4 min) avant le prochain commentaire.
+            sleep $(( ( RANDOM % 61 ) + 180 ))
+          done
