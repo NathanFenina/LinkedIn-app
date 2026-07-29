@@ -296,4 +296,63 @@ ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ;
 ALTER TABLE profile_visitors ADD COLUMN IF NOT EXISTS invitation_message TEXT;
 CREATE INDEX IF NOT EXISTS idx_visitors_score ON profile_visitors(score DESC);
 
+-- ===========================================================================
+-- Feature 6: auto-comment (commente les posts <24h d'une liste de membres)
+-- Remplace le workflow N8N "AUTO-COMMENTS". La liste de membres = les
+-- provider_ids LinkedIn (ACoAA...) extraits d'une recherche facettée.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS comment_campaigns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  linkedin_account_id UUID REFERENCES linkedin_accounts(id) ON DELETE SET NULL,
+  -- Liste des provider_ids LinkedIn (ACoAA...) des membres à suivre.
+  member_ids TEXT[] NOT NULL DEFAULT '{}',
+  -- Plafond de commentaires postés par jour (garde-fou anti-blocage).
+  daily_cap INTEGER NOT NULL DEFAULT 15,
+  -- Nombre max de commentaires postés par exécution du cron (fenêtrage 300s).
+  max_per_run INTEGER NOT NULL DEFAULT 3,
+  -- Délai aléatoire entre 2 commentaires d'un même run (secondes).
+  min_delay_sec INTEGER NOT NULL DEFAULT 60,
+  max_delay_sec INTEGER NOT NULL DEFAULT 110,
+  -- Fenêtre horaire de posting (heure locale serveur, UTC). NULL = pas de limite.
+  active_hour_start INTEGER,
+  active_hour_end INTEGER,
+  -- Aussi liker le post en plus de le commenter (comme l'ancien workflow).
+  also_like BOOLEAN NOT NULL DEFAULT true,
+  -- Autoriser 1 mention auto-promo (Decupler) dans ~20% des commentaires.
+  allow_self_promo BOOLEAN NOT NULL DEFAULT false,
+  -- Consignes libres injectées dans le prompt (ton, longueur, sujets à éviter…).
+  instructions TEXT,
+  active BOOLEAN DEFAULT true,
+  last_run_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS comment_campaigns_updated_at ON comment_campaigns;
+CREATE TRIGGER comment_campaigns_updated_at
+  BEFORE UPDATE ON comment_campaigns
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TABLE IF NOT EXISTS comment_sends (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  campaign_id UUID REFERENCES comment_campaigns(id) ON DELETE CASCADE,
+  post_social_id TEXT NOT NULL,
+  post_url TEXT,
+  author_name TEXT,
+  author_id TEXT,
+  post_excerpt TEXT,
+  comment_text TEXT,
+  liked BOOLEAN DEFAULT false,
+  -- 'sent' = posté ; 'error' = échec Unipile/IA.
+  status TEXT NOT NULL DEFAULT 'sent',
+  error TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Anti-doublon : 1 seul commentaire par post et par campagne.
+  UNIQUE (campaign_id, post_social_id)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_sends_campaign ON comment_sends(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_comment_sends_created ON comment_sends(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comment_campaigns_account ON comment_campaigns(linkedin_account_id);
+
 NOTIFY pgrst, 'reload schema';

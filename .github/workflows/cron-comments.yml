@@ -1,0 +1,18 @@
+name: Cron Auto-Comments
+# Poste quelques commentaires par heure pour étaler le plafond quotidien sur la
+# journée (plus sûr qu'un batch unique + compatible avec la limite 300s Vercel).
+# Vercel Hobby = 2 crons max, déjà pris par signals + lead-magnets → on passe
+# par GitHub Actions (gratuit).
+on:
+  schedule:
+    - cron: '0 7-19 * * *'  # toutes les heures de 7h à 19h UTC
+  workflow_dispatch:          # déclenchable à la main depuis l'onglet Actions
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit cron endpoint
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/comments"
