@@ -114,6 +114,42 @@ export interface LeadMagnetCampaign {
   updated_at: string
 }
 
+// Feature 6 — auto-comment
+export interface CommentCampaign {
+  id: string
+  name: string
+  linkedin_account_id: string | null
+  member_ids: string[]
+  daily_cap: number
+  max_per_run: number
+  min_delay_sec: number
+  max_delay_sec: number
+  active_hour_start: number | null
+  active_hour_end: number | null
+  also_like: boolean
+  allow_self_promo: boolean
+  instructions: string | null
+  active: boolean
+  last_run_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CommentSend {
+  id: string
+  campaign_id: string
+  post_social_id: string
+  post_url: string | null
+  author_name: string | null
+  author_id: string | null
+  post_excerpt: string | null
+  comment_text: string | null
+  liked: boolean
+  status: 'sent' | 'error'
+  error: string | null
+  created_at: string
+}
+
 export interface LeadMagnetSend {
   id: string
   campaign_id: string

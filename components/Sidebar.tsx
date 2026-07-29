@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 
@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: '/signals', label: 'Signaux', icon: Target, group: 'OUTREACH' },
   { href: '/jobs', label: 'Jobs', icon: Briefcase, group: 'OUTREACH' },
   { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'OUTREACH' },
+  { href: '/comments', label: 'Commentaires auto', icon: MessageCircle, group: 'OUTREACH' },
   { href: '/competitor', label: 'Outreach concurrent', icon: UserPlus2, group: 'OUTREACH' },
   { href: '/templates', label: 'Templates', icon: FileText, group: 'CONFIG' },
   { href: '/automations', label: 'Automations', icon: Zap, group: 'CONFIG' },

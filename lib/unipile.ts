@@ -241,6 +241,80 @@ export async function sendPostComment(accountId: string, socialId: string, text:
   })
 }
 
+// ---------------------------------------------------------------------------
+// Auto-comment: search posts by member list, react (like), post comment.
+// Mirrors the proven N8N "AUTO-COMMENTS" flow:
+//   POST /linkedin/search  body {url}  → Unipile accepts a raw faceted URL
+//   POST /posts/reaction   body {account_id, post_id, reaction_type}
+// ---------------------------------------------------------------------------
+
+export interface SearchPost {
+  author_name: string
+  author_id: string
+  post_content: string
+  url: string
+  social_id: string
+  type: string
+  posted_at: string | null
+}
+
+// Build the LinkedIn faceted content-search URL for a set of member provider_ids,
+// filtered to the last 24h and sorted by recency (exact format Unipile expects).
+export function buildMemberSearchUrl(memberIds: string[]): string {
+  const clean = memberIds.map((m) => m.trim()).filter((m) => m.startsWith('ACo'))
+  const encoded = encodeURIComponent(JSON.stringify(clean))
+  return `https://www.linkedin.com/search/results/content/?datePosted=%22past-24h%22&fromMember=${encoded}&origin=FACETED_SEARCH&sid=SM%40&sortBy=%22date_posted%22`
+}
+
+// Extract the fromMember=[...] provider_ids out of a pasted LinkedIn search URL.
+// Lets the user paste their existing saved-search URL instead of raw IDs.
+export function extractMemberIdsFromSearchUrl(input: string): string[] {
+  // Grab every ACoAA... token; works whether the URL is encoded or not.
+  const matches = input.match(/ACoAA[A-Za-z0-9_-]+/g)
+  if (!matches) return []
+  return Array.from(new Set(matches))
+}
+
+// One page of the content search. Pass the faceted URL as body {url}.
+export async function searchPostsBySearchUrl(
+  accountId: string,
+  searchUrl: string,
+  cursor?: string
+): Promise<{ items: SearchPost[]; cursor?: string }> {
+  const params = new URLSearchParams({ account_id: accountId })
+  if (cursor) params.set('cursor', cursor)
+  const data = await unipileFetch(`/linkedin/search?${params.toString()}`, {
+    method: 'POST',
+    body: JSON.stringify({ url: searchUrl }),
+  })
+  const rawItems = (data.items || []) as Array<Record<string, unknown>>
+  const items: SearchPost[] = rawItems.map((p) => {
+    const author = (p.author || {}) as Record<string, unknown>
+    const shareUrl = (p.share_url as string) || ''
+    return {
+      author_name: (author.name as string) || '',
+      author_id: (author.id as string) || '',
+      post_content: (p.text as string) || '',
+      url: shareUrl.split('?')[0],
+      social_id: (p.social_id as string) || (p.id as string) || '',
+      type: (p.type as string) || '',
+      posted_at: (p.parsed_datetime as string) || (p.date as string) || null,
+    }
+  })
+  return { items, cursor: (data.cursor as string | undefined) || undefined }
+}
+
+export async function likePost(accountId: string, socialId: string, reaction = 'like') {
+  return unipileFetch(`/posts/reaction`, {
+    method: 'POST',
+    body: JSON.stringify({
+      account_id: accountId,
+      post_id: socialId,
+      reaction_type: reaction,
+    }),
+  })
+}
+
 // Extract a LinkedIn post identifier from a post URL, in the exact format
 // Unipile's /posts/{post_id} endpoint expects. Per Unipile docs:
 //   - URLs containing "activity" → raw numeric ID  (e.g. "7332661864792854528")
