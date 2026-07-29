@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       .insert({
         name: name.trim(),
         member_ids,
-        daily_cap: Math.max(1, Number(body.daily_cap) || 15),
+        daily_cap: Math.max(1, Number(body.daily_cap) || 20),
         max_per_run: Math.max(1, Number(body.max_per_run) || 1),
         min_delay_sec: Math.max(0, Number(body.min_delay_sec) || 180),
         max_delay_sec: Math.max(1, Number(body.max_delay_sec) || 240),

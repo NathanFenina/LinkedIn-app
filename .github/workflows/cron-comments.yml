@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Run commenting session
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          APP_URL: https://linked-in-app-black.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           for i in $(seq 1 60); do

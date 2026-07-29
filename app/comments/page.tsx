@@ -16,7 +16,7 @@ export default function CommentsPage() {
   // create form
   const [name, setName] = useState('')
   const [membersInput, setMembersInput] = useState('')
-  const [dailyCap, setDailyCap] = useState('15')
+  const [dailyCap, setDailyCap] = useState('20')
   const [minDelay, setMinDelay] = useState('180')
   const [maxDelay, setMaxDelay] = useState('240')
   const [alsoLike, setAlsoLike] = useState(true)

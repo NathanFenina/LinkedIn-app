@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS comment_campaigns (
   -- Liste des provider_ids LinkedIn (ACoAA...) des membres à suivre.
   member_ids TEXT[] NOT NULL DEFAULT '{}',
   -- Plafond de commentaires postés par jour (garde-fou anti-blocage).
-  daily_cap INTEGER NOT NULL DEFAULT 15,
+  daily_cap INTEGER NOT NULL DEFAULT 20,
   -- Nb de commentaires postés par appel. 1 = le runner de session (GitHub
   -- Actions) espace lui-même chaque commentaire (voir min/max_delay_sec).
   max_per_run INTEGER NOT NULL DEFAULT 1,
