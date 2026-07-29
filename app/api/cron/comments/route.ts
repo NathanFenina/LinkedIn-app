@@ -4,7 +4,7 @@
 // so the daily cap gets spread across the day instead of a single batch.
 
 import { getServerSupabase } from '@/lib/supabase'
-import { runCommentCampaign } from '@/lib/comment-runner'
+import { postNextDraft } from '@/lib/comment-runner'
 
 export const maxDuration = 300
 
@@ -26,15 +26,15 @@ async function runJob() {
   let totalRemaining = 0
   for (const campaign of campaigns) {
     try {
-      const r = await runCommentCampaign(db, campaign, { dryRun: false })
-      totalPosted += r.comments_posted
+      const r = await postNextDraft(db, campaign)
+      totalPosted += r.posted
       totalRemaining += r.remaining_today ?? 0
       results.push({
         campaign: campaign.name,
-        posted: r.comments_posted,
+        posted: r.posted,
         remaining: r.remaining_today,
         skipped: r.skipped_reason,
-        errors: r.errors,
+        error: r.error,
       })
     } catch (err) {
       results.push({ campaign: campaign.name, error: String(err) })

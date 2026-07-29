@@ -1,15 +1,15 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { postNextDraft } from '@/lib/comment-runner'
+import { generateDrafts } from '@/lib/comment-runner'
 
 export const maxDuration = 300
 
-// Poste LE PROCHAIN brouillon en attente (1 commentaire). Utilisé par le bouton
-// "Poster 1 maintenant" et par le runner de session (cron).
 export async function POST(
-  _request: Request,
+  request: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params
+  const { limit } = await request.json().catch(() => ({}))
+
   try {
     const db = getServerSupabase()
     const { data: campaign, error } = await db
@@ -20,8 +20,17 @@ export async function POST(
     if (error || !campaign) {
       return Response.json({ error: 'Campagne non trouvée' }, { status: 404 })
     }
-    const result = await postNextDraft(db, campaign)
-    return Response.json(result)
+    const result = await generateDrafts(db, campaign, { limit: Number(limit) || undefined })
+
+    // Renvoie les brouillons créés (pour affichage immédiat).
+    const { data: drafts } = await db
+      .from('comment_sends')
+      .select('*')
+      .eq('campaign_id', id)
+      .eq('status', 'draft')
+      .order('created_at', { ascending: true })
+
+    return Response.json({ ...result, drafts: drafts || [] })
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }
