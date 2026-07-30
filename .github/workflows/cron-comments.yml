@@ -6,7 +6,9 @@ name: Auto-Comments Session
 # 1 commentaire" à chaque appel ; c'est cette boucle qui gère l'espacement.
 on:
   schedule:
-    - cron: '0 8 * * *'   # une session par jour, ~8h UTC (déclenchement approximatif)
+    # 06:00 UTC = 8h heure française (été, CEST). Déclenchement approximatif
+    # (GitHub peut décaler de quelques minutes). Change l'heure ici si besoin.
+    - cron: '0 6 * * *'
   workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
 jobs:
   session:
