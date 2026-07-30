@@ -13,6 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350    # garde-fou (< 6h)
     steps:
+      - name: Generate drafts (campagnes en auto_generate)
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Génération des brouillons du jour (auto_generate)…"
+          curl -fsSL -X POST -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/comments?mode=generate" || echo "generate a échoué (ignoré)"
+
       - name: Run commenting session
         env:
           APP_URL: https://linked-in-app-black.vercel.app

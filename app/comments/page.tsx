@@ -21,7 +21,12 @@ export default function CommentsPage() {
   const [maxDelay, setMaxDelay] = useState('240')
   const [alsoLike, setAlsoLike] = useState(true)
   const [allowSelfPromo, setAllowSelfPromo] = useState(false)
+  const [autoGenerate, setAutoGenerate] = useState(false)
   const [instructions, setInstructions] = useState('')
+
+  // edit members list
+  const [editMembersId, setEditMembersId] = useState<string | null>(null)
+  const [editMembersText, setEditMembersText] = useState('')
 
   const fetchCampaigns = useCallback(async () => {
     const data = await fetch('/api/comment-campaigns').then((r) => r.json())
@@ -70,6 +75,7 @@ export default function CommentsPage() {
         max_delay_sec: Number(maxDelay) || 240,
         also_like: alsoLike,
         allow_self_promo: allowSelfPromo,
+        auto_generate: autoGenerate,
         instructions: instructions.trim() || null,
       }),
     })
@@ -98,6 +104,18 @@ export default function CommentsPage() {
     if (!confirm('Supprimer cette campagne ?')) return
     setCampaigns((prev) => prev.filter((c) => c.id !== id))
     await fetch(`/api/comment-campaigns/${id}`, { method: 'DELETE' })
+  }
+
+  const saveMembers = async (id: string) => {
+    const ids = Array.from(new Set(editMembersText.match(/ACoAA[A-Za-z0-9_-]+/g) || []))
+    if (ids.length === 0) {
+      setMsg('Aucun membre valide détecté (attendu : URL de recherche ou ids ACoAA…).')
+      return
+    }
+    await update(id, { member_ids: ids })
+    setEditMembersId(null)
+    setEditMembersText('')
+    setMsg(`Liste mise à jour : ${ids.length} membre(s).`)
   }
 
   const generate = async (id: string) => {
@@ -223,6 +241,10 @@ export default function CommentsPage() {
                 <input type="checkbox" checked={allowSelfPromo} onChange={(e) => setAllowSelfPromo(e.target.checked)} />
                 Autoriser ~20% d&apos;auto-promo Decupler
               </label>
+              <label className="flex items-center gap-2 text-xs text-gray-600 md:col-span-2 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                <input type="checkbox" checked={autoGenerate} onChange={(e) => setAutoGenerate(e.target.checked)} />
+                <span><b>Full auto</b> — la session du matin génère ET poste sans revue. Décoché = tu prépares/valides les brouillons toi-même.</span>
+              </label>
             </div>
             <div className="flex gap-2">
               <button onClick={create} className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Créer</button>
@@ -249,10 +271,18 @@ export default function CommentsPage() {
                   <div>
                     <h2 className="font-semibold text-gray-900 text-sm">{c.name}</h2>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500 mt-1">
-                      <span className="inline-flex items-center gap-1"><Users className="w-3 h-3" /> {c.member_ids?.length || 0} membres</span>
+                      <button
+                        onClick={() => { setEditMembersId(editMembersId === c.id ? null : c.id); setEditMembersText('') }}
+                        className="inline-flex items-center gap-1 hover:text-blue-600"
+                        title="Modifier la liste de membres">
+                        <Users className="w-3 h-3" /> {c.member_ids?.length || 0} membres ✎
+                      </button>
                       <span>Plafond {c.daily_cap}/j</span>
                       <span>délai {c.min_delay_sec}-{c.max_delay_sec}s</span>
                       {c.also_like && <span>+ like</span>}
+                      {c.auto_generate
+                        ? <span className="text-amber-600 font-medium">full auto</span>
+                        : <span className="text-gray-400">revue manuelle</span>}
                       <span className="text-amber-600">{drafts.length} brouillon(s)</span>
                       <span className="text-green-600">{sentCount} posté(s)</span>
                       {c.last_run_at && <span>Dernier {formatDistanceToNow(c.last_run_at)}</span>}
@@ -277,11 +307,37 @@ export default function CommentsPage() {
                   className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40">
                   <Play className="w-3.5 h-3.5" /> Poster 1 maintenant (test)
                 </button>
+                <button onClick={() => update(c.id, { auto_generate: !c.auto_generate })}
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-gray-300 rounded hover:bg-gray-50">
+                  {c.auto_generate ? 'Passer en revue manuelle' : 'Passer en full auto'}
+                </button>
                 <button onClick={() => remove(c.id)}
                   className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-red-200 text-red-600 rounded hover:bg-red-50">
                   <Trash2 className="w-3.5 h-3.5" /> Supprimer
                 </button>
               </div>
+
+              {editMembersId === c.id && (
+                <div className="mt-3 pl-11">
+                  <div className="text-[11px] text-gray-500 mb-1">
+                    Colle la nouvelle URL de recherche LinkedIn (ou des ids ACoAA…). Ça remplace la liste actuelle.
+                  </div>
+                  <textarea
+                    value={editMembersText}
+                    onChange={(e) => setEditMembersText(e.target.value)}
+                    rows={3}
+                    placeholder='https://www.linkedin.com/search/results/content/?...&fromMember=["ACoAA...","ACoAA..."]'
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono"
+                  />
+                  <div className="text-[11px] text-gray-400">
+                    {(editMembersText.match(/ACoAA[A-Za-z0-9_-]+/g) || []).length} membre(s) détecté(s)
+                  </div>
+                  <div className="flex gap-2 mt-1">
+                    <button onClick={() => saveMembers(c.id)} className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Enregistrer la liste</button>
+                    <button onClick={() => setEditMembersId(null)} className="text-xs px-2.5 py-1 border border-gray-300 rounded hover:bg-gray-50">Annuler</button>
+                  </div>
+                </div>
+              )}
 
               {drafts.length > 0 && (
                 <div className="mt-3 pl-11 space-y-2">

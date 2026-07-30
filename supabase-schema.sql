@@ -323,6 +323,10 @@ CREATE TABLE IF NOT EXISTS comment_campaigns (
   also_like BOOLEAN NOT NULL DEFAULT true,
   -- Autoriser 1 mention auto-promo (Decupler) dans ~20% des commentaires.
   allow_self_promo BOOLEAN NOT NULL DEFAULT false,
+  -- Full auto : la session du matin GÉNÈRE elle-même les brouillons puis poste
+  -- (sans revue). Si false (défaut), la session ne poste que les brouillons que
+  -- tu as préparés/validés à la main.
+  auto_generate BOOLEAN NOT NULL DEFAULT false,
   -- Consignes libres injectées dans le prompt (ton, longueur, sujets à éviter…).
   instructions TEXT,
   active BOOLEAN DEFAULT true,

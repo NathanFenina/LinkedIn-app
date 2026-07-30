@@ -128,6 +128,7 @@ export interface CommentCampaign {
   active_hour_end: number | null
   also_like: boolean
   allow_self_promo: boolean
+  auto_generate: boolean
   instructions: string | null
   active: boolean
   last_run_at: string | null

@@ -75,6 +75,7 @@ export async function POST(request: Request) {
             : Number(body.active_hour_end),
         also_like: body.also_like !== false,
         allow_self_promo: !!body.allow_self_promo,
+        auto_generate: !!body.auto_generate,
         instructions: body.instructions?.trim() || null,
         active: true,
         linkedin_account_id: accountRowId,

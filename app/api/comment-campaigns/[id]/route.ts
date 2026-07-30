@@ -12,6 +12,7 @@ const EDITABLE = new Set([
   'active_hour_end',
   'also_like',
   'allow_self_promo',
+  'auto_generate',
   'instructions',
   'active',
 ])
