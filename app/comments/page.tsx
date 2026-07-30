@@ -10,7 +10,7 @@ export default function CommentsPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const [draftsByCampaign, setDraftsByCampaign] = useState<Record<string, CommentSend[]>>({})
-  const [sentCountByCampaign, setSentCountByCampaign] = useState<Record<string, number>>({})
+  const [sentByCampaign, setSentByCampaign] = useState<Record<string, CommentSend[]>>({})
   const [showForm, setShowForm] = useState(false)
 
   // create form
@@ -32,7 +32,7 @@ export default function CommentsPage() {
     const data = await fetch(`/api/comment-campaigns/${id}`).then((r) => r.json())
     const sends: CommentSend[] = data.sends || []
     setDraftsByCampaign((prev) => ({ ...prev, [id]: sends.filter((s) => s.status === 'draft') }))
-    setSentCountByCampaign((prev) => ({ ...prev, [id]: sends.filter((s) => s.status === 'sent').length }))
+    setSentByCampaign((prev) => ({ ...prev, [id]: sends.filter((s) => s.status === 'sent') }))
   }, [])
 
   useEffect(() => {
@@ -41,6 +41,16 @@ export default function CommentsPage() {
 
   useEffect(() => {
     campaigns.forEach((c) => loadDrafts(c.id))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaigns.length])
+
+  // Auto-refresh: la session GitHub poste en arrière-plan → on rafraîchit le
+  // suivi (brouillons + postés) toutes les 20s tant que la page est ouverte.
+  useEffect(() => {
+    const t = setInterval(() => {
+      campaigns.forEach((c) => loadDrafts(c.id))
+    }, 20000)
+    return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaigns.length])
 
@@ -227,7 +237,8 @@ export default function CommentsPage() {
 
         {campaigns.map((c) => {
           const drafts = draftsByCampaign[c.id] || []
-          const sentCount = sentCountByCampaign[c.id] || 0
+          const sent = sentByCampaign[c.id] || []
+          const sentCount = sent.length
           return (
             <section key={c.id} className="bg-white border border-gray-200 rounded-lg p-5">
               <div className="flex items-start justify-between gap-3">
@@ -281,6 +292,31 @@ export default function CommentsPage() {
                     <DraftRow key={d.id} draft={d}
                       onSave={(text) => saveDraft(c.id, d.id, text)}
                       onSkip={() => skipDraft(c.id, d.id)} />
+                  ))}
+                </div>
+              )}
+
+              {sent.length > 0 && (
+                <div className="mt-4 pl-11 space-y-1.5">
+                  <div className="text-[10px] font-bold uppercase text-gray-400">
+                    Postés ({sent.length}) — suivi en direct
+                  </div>
+                  {sent.map((s) => (
+                    <div key={s.id} className="border border-green-100 bg-green-50/50 rounded-lg p-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-gray-700">{s.author_name}</span>
+                        <span className="text-[10px] text-gray-400 flex items-center gap-2">
+                          {formatDistanceToNow(s.created_at)}
+                          {s.liked && <span className="text-blue-600">+ like</span>}
+                          {s.post_url && (
+                            <a href={s.post_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 inline-flex items-center gap-0.5">
+                              post <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </span>
+                      </div>
+                      <p className="text-[13px] text-gray-800 mt-1">{s.comment_text}</p>
+                    </div>
                   ))}
                 </div>
               )}
