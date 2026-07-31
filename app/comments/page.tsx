@@ -182,6 +182,18 @@ export default function CommentsPage() {
   }
 
   const isError = msg.toLowerCase().startsWith('erreur')
+  const todayStart0 = startOfTodayISO()
+  const totals = campaigns.reduce(
+    (acc, c) => {
+      const sent = sentByCampaign[c.id] || []
+      acc.sentToday += sent.filter((s) => new Date(s.created_at).getTime() >= todayStart0).length
+      acc.drafts += (draftsByCampaign[c.id] || []).length
+      acc.cap += c.active ? c.daily_cap : 0
+      if (c.active) acc.active += 1
+      return acc
+    },
+    { sentToday: 0, drafts: 0, cap: 0, active: 0 }
+  )
   const inputCls =
     'mt-1 w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none transition'
 
@@ -210,6 +222,27 @@ export default function CommentsPage() {
       </header>
 
       <div className="max-w-[1100px] mx-auto px-6 py-6 space-y-4">
+        {campaigns.length > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Postés aujourd&apos;hui</div>
+              <div className="text-2xl font-bold text-green-600 leading-tight mt-0.5">
+                {totals.sentToday}<span className="text-sm text-gray-400 font-normal"> / {totals.cap || '—'}</span>
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">En file</div>
+              <div className="text-2xl font-bold text-amber-600 leading-tight mt-0.5">{totals.drafts}</div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Campagnes actives</div>
+              <div className="text-2xl font-bold text-gray-900 leading-tight mt-0.5">
+                {totals.active}<span className="text-sm text-gray-400 font-normal"> / {campaigns.length}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {msg && (
           <div
             className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2.5 border ${
