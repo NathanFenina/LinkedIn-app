@@ -1,6 +1,7 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { extractMemberIdsFromSearchUrl, extractPostUrls } from '@/lib/unipile'
 import { getActiveAccount, getActiveAccountRowId, scopeQueryToAccount } from '@/lib/account'
+import { errMsg } from '@/lib/utils'
 
 export async function GET() {
   try {
@@ -14,7 +15,7 @@ export async function GET() {
     if (error) throw error
     return Response.json(data)
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return Response.json({ error: errMsg(err) }, { status: 500 })
   }
 }
 
@@ -95,6 +96,6 @@ export async function POST(request: Request) {
     if (error) throw error
     return Response.json(data)
   } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+    return Response.json({ error: errMsg(err) }, { status: 500 })
   }
 }

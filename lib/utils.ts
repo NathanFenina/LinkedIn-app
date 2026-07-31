@@ -5,6 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Extrait un message lisible d'une erreur (Error, erreur Supabase, string…).
+// Évite les "[object Object]" quand String(err) est appelé sur un objet.
+export function errMsg(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const e = err as { message?: string; details?: string; hint?: string }
+    return e.message || e.details || e.hint || JSON.stringify(err)
+  }
+  return String(err)
+}
+
 export function formatDistanceToNow(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()

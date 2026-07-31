@@ -86,8 +86,9 @@ export default function CommentsPage() {
       setShowForm(false)
       fetchCampaigns()
     } else {
-      const data = await res.json()
-      setMsg(`Erreur: ${data.error}`)
+      const data = await res.json().catch(() => ({}))
+      const e = data.error
+      setMsg(`Erreur: ${typeof e === 'string' ? e : JSON.stringify(e) || res.statusText}`)
     }
   }
 
