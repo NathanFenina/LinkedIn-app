@@ -120,6 +120,7 @@ export interface CommentCampaign {
   name: string
   linkedin_account_id: string | null
   member_ids: string[]
+  post_urls: string[]
   daily_cap: number
   max_per_run: number
   min_delay_sec: number

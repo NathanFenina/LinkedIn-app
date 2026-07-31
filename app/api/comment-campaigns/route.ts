@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { extractMemberIdsFromSearchUrl } from '@/lib/unipile'
+import { extractMemberIdsFromSearchUrl, extractPostUrls } from '@/lib/unipile'
 import { getActiveAccount, getActiveAccountRowId, scopeQueryToAccount } from '@/lib/account'
 
 export async function GET() {
@@ -38,17 +38,26 @@ function parseMembers(body: Record<string, unknown>): string[] {
   )
 }
 
+function parsePostUrls(body: Record<string, unknown>): string[] {
+  if (Array.isArray(body.post_urls)) {
+    return (body.post_urls as string[]).map((u) => String(u).trim()).filter(Boolean)
+  }
+  const raw = String(body.post_urls_input || body.members_input || body.search_url || '')
+  return extractPostUrls(raw)
+}
+
 export async function POST(request: Request) {
   const body = await request.json()
   const { name } = body
   const member_ids = parseMembers(body)
+  const post_urls = parsePostUrls(body)
 
   if (!name?.trim()) {
     return Response.json({ error: 'name requis' }, { status: 400 })
   }
-  if (member_ids.length === 0) {
+  if (member_ids.length === 0 && post_urls.length === 0) {
     return Response.json(
-      { error: 'Aucun membre valide. Colle ton URL de recherche LinkedIn (fromMember) ou des ids ACoAA...' },
+      { error: 'Aucun membre ni post. Colle une URL de recherche (fromMember), des ids ACoAA… ou des URLs de posts.' },
       { status: 400 }
     )
   }
@@ -61,6 +70,7 @@ export async function POST(request: Request) {
       .insert({
         name: name.trim(),
         member_ids,
+        post_urls,
         daily_cap: Math.max(1, Number(body.daily_cap) || 20),
         max_per_run: Math.max(1, Number(body.max_per_run) || 1),
         min_delay_sec: Math.max(0, Number(body.min_delay_sec) || 180),

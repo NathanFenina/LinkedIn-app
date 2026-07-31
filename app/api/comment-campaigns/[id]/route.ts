@@ -4,6 +4,7 @@ import { getServerSupabase } from '@/lib/supabase'
 const EDITABLE = new Set([
   'name',
   'member_ids',
+  'post_urls',
   'daily_cap',
   'max_per_run',
   'min_delay_sec',

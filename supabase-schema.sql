@@ -307,6 +307,8 @@ CREATE TABLE IF NOT EXISTS comment_campaigns (
   linkedin_account_id UUID REFERENCES linkedin_accounts(id) ON DELETE SET NULL,
   -- Liste des provider_ids LinkedIn (ACoAA...) des membres à suivre.
   member_ids TEXT[] NOT NULL DEFAULT '{}',
+  -- Liste d'URLs de posts précis à commenter (en plus du feed des membres).
+  post_urls TEXT[] NOT NULL DEFAULT '{}',
   -- Plafond de commentaires postés par jour (garde-fou anti-blocage).
   daily_cap INTEGER NOT NULL DEFAULT 20,
   -- Nb de commentaires postés par appel. 1 = le runner de session (GitHub

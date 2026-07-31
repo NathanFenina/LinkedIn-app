@@ -108,14 +108,18 @@ export default function CommentsPage() {
 
   const saveMembers = async (id: string) => {
     const ids = Array.from(new Set(editMembersText.match(/ACoAA[A-Za-z0-9_-]+/g) || []))
-    if (ids.length === 0) {
-      setMsg('Aucun membre valide détecté (attendu : URL de recherche ou ids ACoAA…).')
+    const urls = Array.from(new Set(
+      (editMembersText.match(/https?:\/\/(?:[\w.-]*\.)?linkedin\.com\/(?:posts|feed\/update)\/[^\s"'<>]+/gi) || [])
+        .map((u) => u.replace(/[).,]+$/, ''))
+    ))
+    if (ids.length === 0 && urls.length === 0) {
+      setMsg('Rien de détecté (attendu : URL de recherche, ids ACoAA… ou URLs de posts).')
       return
     }
-    await update(id, { member_ids: ids })
+    await update(id, { member_ids: ids, post_urls: urls })
     setEditMembersId(null)
     setEditMembersText('')
-    setMsg(`Liste mise à jour : ${ids.length} membre(s).`)
+    setMsg(`Feed mis à jour : ${ids.length} membre(s) + ${urls.length} post(s) précis.`)
   }
 
   const generate = async (id: string) => {
@@ -204,11 +208,13 @@ export default function CommentsPage() {
                   className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
               </label>
               <label className="text-xs text-gray-600 md:col-span-2">
-                Membres à suivre — colle ton URL de recherche LinkedIn (fromMember) OU les ids ACoAA…
-                <textarea value={membersInput} onChange={(e) => setMembersInput(e.target.value)} rows={3}
-                  placeholder='https://www.linkedin.com/search/results/content/?...&fromMember=["ACoAA...","ACoAA..."]'
+                Le feed — colle en vrac : URL(s) de recherche (fromMember), ids ACoAA…, ET/OU des URLs de posts précis.
+                <textarea value={membersInput} onChange={(e) => setMembersInput(e.target.value)} rows={4}
+                  placeholder={'https://www.linkedin.com/search/results/content/?...&fromMember=["ACoAA..."]\nhttps://www.linkedin.com/posts/...'}
                   className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono" />
-                <span className="text-[11px] text-gray-400">{memberPreviewCount} membre(s) détecté(s)</span>
+                <span className="text-[11px] text-gray-400">
+                  {memberPreviewCount} membre(s) + {(membersInput.match(/https?:\/\/(?:[\w.-]*\.)?linkedin\.com\/(?:posts|feed\/update)\/[^\s"'<>]+/gi) || []).length} post(s) détecté(s)
+                </span>
               </label>
               <label className="text-xs text-gray-600">
                 Plafond / jour
@@ -275,7 +281,8 @@ export default function CommentsPage() {
                         onClick={() => { setEditMembersId(editMembersId === c.id ? null : c.id); setEditMembersText('') }}
                         className="inline-flex items-center gap-1 hover:text-blue-600"
                         title="Modifier la liste de membres">
-                        <Users className="w-3 h-3" /> {c.member_ids?.length || 0} membres ✎
+                        <Users className="w-3 h-3" /> {c.member_ids?.length || 0} membres
+                        {(c.post_urls?.length || 0) > 0 && <> + {c.post_urls.length} posts</>} ✎
                       </button>
                       <span>Plafond {c.daily_cap}/j</span>
                       <span>délai {c.min_delay_sec}-{c.max_delay_sec}s</span>
@@ -320,7 +327,8 @@ export default function CommentsPage() {
               {editMembersId === c.id && (
                 <div className="mt-3 pl-11">
                   <div className="text-[11px] text-gray-500 mb-1">
-                    Colle la nouvelle URL de recherche LinkedIn (ou des ids ACoAA…). Ça remplace la liste actuelle.
+                    Colle en vrac : URL(s) de recherche LinkedIn, ids ACoAA…, ET/OU des URLs de posts précis.
+                    L&apos;app détecte membres + posts automatiquement. Ça remplace le feed actuel.
                   </div>
                   <textarea
                     value={editMembersText}

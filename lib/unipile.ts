@@ -275,6 +275,16 @@ export function extractMemberIdsFromSearchUrl(input: string): string[] {
   return Array.from(new Set(matches))
 }
 
+// Extract individual LinkedIn POST urls from a blob of pasted text (WhatsApp
+// dumps, notes…). Matches /posts/ and /feed/update/ links; excludes /search/.
+export function extractPostUrls(input: string): string[] {
+  const matches =
+    input.match(/https?:\/\/(?:[\w.-]*\.)?linkedin\.com\/(?:posts|feed\/update)\/[^\s"'<>]+/gi) || []
+  // Strip trailing punctuation / query cruft, dedupe.
+  const cleaned = matches.map((u) => u.replace(/[).,]+$/, ''))
+  return Array.from(new Set(cleaned))
+}
+
 // One page of the content search. Pass the faceted URL as body {url}.
 export async function searchPostsBySearchUrl(
   accountId: string,

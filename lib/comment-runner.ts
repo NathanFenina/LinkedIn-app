@@ -4,6 +4,8 @@ import {
   searchPostsBySearchUrl,
   sendPostComment,
   likePost,
+  getPost,
+  extractPostIdFromUrl,
   type SearchPost,
 } from '@/lib/unipile'
 import { generateLinkedInComment } from '@/lib/gemini'
@@ -59,8 +61,9 @@ export async function generateDrafts(
 ): Promise<GenerateResult> {
   const errors: string[] = []
   const memberIds: string[] = campaign.member_ids || []
-  if (memberIds.length === 0) {
-    return { generated: 0, posts_found: 0, skipped_reason: 'Aucun membre', errors }
+  const postUrls: string[] = campaign.post_urls || []
+  if (memberIds.length === 0 && postUrls.length === 0) {
+    return { generated: 0, posts_found: 0, skipped_reason: 'Aucun membre ni post', errors }
   }
 
   const limit = opts.limit ?? 15
@@ -72,6 +75,53 @@ export async function generateDrafts(
     .select('post_social_id')
     .eq('campaign_id', campaign.id)
   const doneSet = new Set((existing || []).map((s) => s.post_social_id))
+
+  let generated = 0
+
+  // --- 1) Posts précis (URLs fournies) : priorité, on les traite tous --------
+  for (const url of postUrls) {
+    const pid = extractPostIdFromUrl(url)
+    if (!pid) { errors.push(`URL illisible: ${url}`); continue }
+    let post
+    try {
+      post = await getPost(ACCOUNT_ID, pid)
+    } catch (err) {
+      errors.push(`Post introuvable (${url}): ${String(err).slice(0, 80)}`)
+      continue
+    }
+    const socialId = post.social_id || pid
+    if (doneSet.has(socialId)) continue
+    doneSet.add(socialId)
+    let comment = ''
+    try {
+      comment = await generateLinkedInComment({
+        authorName: post.author?.name || 'l’auteur',
+        postContent: post.text || '',
+        allowSelfPromo: campaign.allow_self_promo,
+        instructions: campaign.instructions,
+      })
+    } catch (err) {
+      errors.push(`IA (${url}): ${String(err).slice(0, 80)}`)
+      continue
+    }
+    if (!comment) continue
+    const { error } = await db.from('comment_sends').insert({
+      campaign_id: campaign.id,
+      post_social_id: socialId,
+      post_url: url,
+      author_name: post.author?.name || null,
+      author_id: post.author?.provider_id || null,
+      post_excerpt: (post.text || '').slice(0, 400),
+      comment_text: comment,
+      status: 'draft',
+    })
+    if (!error) generated++
+  }
+
+  // --- 2) Feed des membres (posts <24h) -------------------------------------
+  if (memberIds.length === 0) {
+    return { generated, posts_found: 0, errors: errors.slice(0, 5) }
+  }
 
   const searchUrl = buildMemberSearchUrl(memberIds)
   const fresh: SearchPost[] = []
@@ -91,7 +141,6 @@ export async function generateDrafts(
   }
 
   const selected = fresh.slice(0, limit)
-  let generated = 0
   for (const post of selected) {
     let comment = ''
     try {
