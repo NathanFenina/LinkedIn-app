@@ -147,6 +147,7 @@ export interface CommentSend {
   post_excerpt: string | null
   comment_text: string | null
   liked: boolean
+  rating: number | null
   status: 'draft' | 'skipped' | 'sent' | 'error'
   error: string | null
   created_at: string

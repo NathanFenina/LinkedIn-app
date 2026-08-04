@@ -263,6 +263,7 @@ export async function generateLinkedInComment(params: {
   postContent: string
   allowSelfPromo?: boolean
   instructions?: string | null
+  badExamples?: string[]
 }): Promise<string> {
   // Décision auto-promo : ~20% des cas, et seulement si autorisé.
   // Déterministe (basé sur le contenu) pour éviter Math.random côté serveur edge.
@@ -286,6 +287,12 @@ Ce post est très court (souvent accompagné d'une IMAGE que tu ne vois PAS). Tu
     : ''
 
   const lengthRule = isShort ? '1 phrase, courte.' : '2 à 3 phrases. Pas une de plus.'
+
+  // Contre-exemples : commentaires que l'utilisateur a notés 👎 → à NE PAS refaire.
+  const bad = (params.badExamples || []).filter(Boolean).slice(0, 6)
+  const badRule = bad.length
+    ? `\n## ❌ COMMENTAIRES REJETÉS PAR NATHAN (ne refais JAMAIS ce style/ton)\n${bad.map((b) => `- "${b}"`).join('\n')}\nCes commentaires ont été jugés mauvais (trop IA, hors-sujet, générique ou flatteur). Prends-en le contre-pied.\n`
+    : ''
 
   const prompt = `## IDENTITÉ
 
@@ -329,6 +336,16 @@ Un commentaire qui se contente de valider ou de rejeter l'idée de l'auteur (oui
 - une conséquence ou une implication qu'il n'a pas tirée
 Après avoir lu ton commentaire, l'auteur doit apprendre un truc, réfléchir, ou avoir envie de te répondre. Si ton commentaire pouvait être écrit par quelqu'un qui n'y connaît rien, recommence.
 
+## TOURNURES & MOTS BANNIS (tu perds si tu les utilises)
+
+1. Ouvertures qui valident/reformulent avant d'enchaîner — INTERDITES :
+   "Je vois exactement ce que tu décris", "Ce cas illustre parfaitement", "Cette lucidité sur…", "Ce genre de rappel est vital", "Ce qui est bluffant/dingue, c'est…", "Tellement vrai".
+2. Moules de phrase répétitives — NE COMMENCE PAS par :
+   "Le vrai/La vraie [nom], c'est…", "La vraie difficulté/complexité/force, c'est…", "C'est la différence entre…", "[X] révèle…".
+   → Ces structures reviennent tout le temps → si on scrolle tes commentaires, ils se ressemblent tous = signal robot n°1. VARIE l'attaque à chaque fois (question directe, anecdote, chiffre, désaccord, réaction courte…).
+3. Flatterie & superlatifs vides — BANNIS : "prouesse", "bluffant", "surhumain", "impitoyablement", "incroyable", "magistral", "chapeau".
+4. Jargon consultant abstrait — BANNI : "valeur perçue", "architecture mentale", "processus internes", "levier", "scaler". Préfère TOUJOURS un détail concret, un chiffre, un exemple vécu à une phrase abstraite.
+
 ## RÈGLE N°3 : ADAPTE-TOI À LA SITUATION (comme un humain)
 
 Tu ne réagis pas pareil selon le post. Sens le contexte et choisis le registre juste :
@@ -359,7 +376,7 @@ ${selfRef
 ## LANGUE
 
 Réponds dans la MÊME langue que le post (français si le post est en français, anglais si anglais, etc.). Ton naturel, registre parlé pro.
-${params.instructions ? `\n## CONSIGNES SUPPLÉMENTAIRES\n${params.instructions}\n` : ''}
+${params.instructions ? `\n## CONSIGNES SUPPLÉMENTAIRES\n${params.instructions}\n` : ''}${badRule}
 ## POST DE ${params.authorName}
 """
 ${params.postContent}

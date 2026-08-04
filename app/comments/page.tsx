@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { CommentCampaign, CommentSend } from '@/types'
-import { Plus, Play, Trash2, Sparkles, Power, Users, MessageCircle, ExternalLink, X, Pencil, CheckCircle2, Zap, FileText, AlertCircle, Loader2, Radio } from 'lucide-react'
+import { Plus, Play, Trash2, Sparkles, Power, Users, MessageCircle, ExternalLink, X, Pencil, CheckCircle2, Zap, FileText, AlertCircle, Loader2, Radio, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { formatDistanceToNow } from '@/lib/utils'
 
 function startOfTodayISO() {
@@ -166,6 +166,19 @@ export default function CommentsPage() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ comment_text: text }),
+    })
+  }
+
+  const rateSend = async (campaignId: string, sendId: string, current: number | null, value: number) => {
+    const rating = current === value ? 0 : value // re-click = annule
+    setSentByCampaign((prev) => ({
+      ...prev,
+      [campaignId]: (prev[campaignId] || []).map((s) => (s.id === sendId ? { ...s, rating } : s)),
+    }))
+    await fetch(`/api/comment-sends/${sendId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating }),
     })
   }
 
@@ -476,7 +489,7 @@ export default function CommentsPage() {
                     <CheckCircle2 className="w-3 h-3" /> Postés ({sent.length}) — suivi en direct
                   </div>
                   {sent.map((s) => (
-                    <div key={s.id} className="border border-green-100 bg-green-50/40 rounded-lg p-3">
+                    <div key={s.id} className={`border rounded-lg p-3 ${s.rating === -1 ? 'border-red-200 bg-red-50/40' : s.rating === 1 ? 'border-green-200 bg-green-50/60' : 'border-green-100 bg-green-50/40'}`}>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-semibold text-gray-700 truncate">{s.author_name}</span>
                         <span className="text-[10px] text-gray-400 flex items-center gap-2 shrink-0">
@@ -490,6 +503,21 @@ export default function CommentsPage() {
                         </span>
                       </div>
                       <p className="text-[13px] text-gray-800 mt-1 leading-relaxed">{s.comment_text}</p>
+                      <div className="flex items-center gap-1.5 mt-2">
+                        <button
+                          onClick={() => rateSend(c.id, s.id, s.rating, 1)}
+                          className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border transition ${s.rating === 1 ? 'bg-green-100 border-green-300 text-green-700' : 'border-gray-200 text-gray-400 hover:text-green-600 hover:border-green-300'}`}
+                          title="Bon commentaire">
+                          <ThumbsUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => rateSend(c.id, s.id, s.rating, -1)}
+                          className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border transition ${s.rating === -1 ? 'bg-red-100 border-red-300 text-red-700' : 'border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-300'}`}
+                          title="Mauvais — deviendra un contre-exemple pour l'IA">
+                          <ThumbsDown className="w-3 h-3" />
+                        </button>
+                        {s.rating === -1 && <span className="text-[10px] text-red-500">→ l&apos;IA évitera ce style</span>}
+                      </div>
                     </div>
                   ))}
                 </div>

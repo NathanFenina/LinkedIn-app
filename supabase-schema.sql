@@ -352,6 +352,9 @@ CREATE TABLE IF NOT EXISTS comment_sends (
   post_excerpt TEXT,
   comment_text TEXT,
   liked BOOLEAN DEFAULT false,
+  -- Feedback amélioration continue : 1 = 👍, -1 = 👎, NULL = non noté.
+  -- Les 👎 servent de contre-exemples à l'IA aux générations suivantes.
+  rating SMALLINT,
   -- 'sent' = posté ; 'error' = échec Unipile/IA.
   status TEXT NOT NULL DEFAULT 'sent',
   error TEXT,

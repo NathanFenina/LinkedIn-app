@@ -76,6 +76,17 @@ export async function generateDrafts(
     .eq('campaign_id', campaign.id)
   const doneSet = new Set((existing || []).map((s) => s.post_social_id))
 
+  // Boucle d'amélioration continue : les commentaires notés 👎 (rating=-1)
+  // servent de contre-exemples à l'IA pour ne pas refaire les mêmes erreurs.
+  const { data: rejected } = await db
+    .from('comment_sends')
+    .select('comment_text')
+    .eq('campaign_id', campaign.id)
+    .eq('rating', -1)
+    .order('created_at', { ascending: false })
+    .limit(6)
+  const badExamples = (rejected || []).map((r) => r.comment_text).filter(Boolean) as string[]
+
   let generated = 0
 
   // --- 1) Posts précis (URLs fournies) : priorité, on les traite tous --------
@@ -99,6 +110,7 @@ export async function generateDrafts(
         postContent: post.text || '',
         allowSelfPromo: campaign.allow_self_promo,
         instructions: campaign.instructions,
+        badExamples,
       })
     } catch (err) {
       errors.push(`IA (${url}): ${String(err).slice(0, 80)}`)
@@ -149,6 +161,7 @@ export async function generateDrafts(
         postContent: post.post_content,
         allowSelfPromo: campaign.allow_self_promo,
         instructions: campaign.instructions,
+        badExamples,
       })
     } catch (err) {
       errors.push(`IA ${post.author_name}: ${String(err)}`)

@@ -2,7 +2,7 @@ import { getServerSupabase } from '@/lib/supabase'
 
 // Édite un brouillon : modifier le texte, le passer (skip) ou le remettre en
 // attente (draft). Seuls ces champs sont modifiables.
-const EDITABLE = new Set(['comment_text', 'status'])
+const EDITABLE = new Set(['comment_text', 'status', 'rating'])
 const ALLOWED_STATUS = new Set(['draft', 'skipped'])
 
 export async function PATCH(
