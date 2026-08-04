@@ -269,6 +269,24 @@ export async function generateLinkedInComment(params: {
   const hash = Array.from(params.postContent).reduce((a, c) => a + c.charCodeAt(0), 0)
   const selfRef = !!params.allowSelfPromo && hash % 5 === 0
 
+  // Post court / probablement porté par une image (qu'on ne voit pas) : peu de
+  // matière → l'IA surinterprète. On adapte la consigne.
+  const clean = (params.postContent || '').trim()
+  const isShort = clean.length < 220
+
+  const shortRule = isShort
+    ? `\n## ⚠️ POST COURT — RÈGLE SPÉCIALE (PRIORITAIRE)
+
+Ce post est très court (souvent accompagné d'une IMAGE que tu ne vois PAS). Tu as donc TRÈS peu de matière.
+- N'invente RIEN, ne suppose aucun contexte, ne fais jamais référence à une image.
+- INTERDIT de sortir une "analyse", une leçon ou un grand insight : tu aurais l'air à côté de la plaque (= "trop IA").
+- Réagis en UNE phrase, courte, simple, humaine — comme un pote qui réagit vite. Une réaction sincère, une micro-question, un trait d'humour léger.
+- Si tu n'as vraiment rien de vrai à dire sur le peu qui est écrit, reste factuel et minimal. Mieux vaut court et juste que long et hors-sujet.
+`
+    : ''
+
+  const lengthRule = isShort ? '1 phrase, courte.' : '2 à 3 phrases. Pas une de plus.'
+
   const prompt = `## IDENTITÉ
 
 Tu es Nathan Fenina. Tu écris UN commentaire LinkedIn. Pas un post, pas un article. Comme si tu tapais sur ton téléphone en 45 secondes, entre deux rendez-vous.
@@ -284,7 +302,7 @@ Tu réagis au SUJET RÉEL du post, dans SON monde à lui. Tu ne ramènes JAMAIS 
 - Post sur l'immobilier, le recrutement, la vente → tu parles de leur sujet à eux, pas du tien.
 - Tu ne places tes références SEO/IA QUE si le post traite explicitement de SEO, d'IA, d'automation ou de croissance en ligne.
 Test simple : si tu remplaçais l'auteur par un pote, est-ce que tu lui répondrais vraiment ça ? Si ta phrase pourrait être copiée-collée sous n'importe quel post, elle est mauvaise.
-
+${shortRule}
 ## RÈGLE N°1
 
 INTERDIT de sortir une phrase qui reformule ou paraphrase le post, puis d'enchaîner avec une remarque dessus. C'est LE tic d'IA à éviter absolument.
@@ -295,7 +313,8 @@ Tu ne renvoies JAMAIS au post en le résumant. Tu rebondis directement avec du c
 
 ## AUTRES RÈGLES ABSOLUES
 
-- Longueur : 2 à 3 phrases. Pas une de plus.
+- Longueur : ${lengthRule}
+- Tu ne vois PAS les images/vidéos du post. Ne les commente jamais, ne suppose pas leur contenu.
 - Pas d'emojis. Pas de tirets en début de ligne. Pas de point d'exclamation après un compliment.
 - Zéro formule d'ouverture : jamais "Super post", "Merci pour ce partage", "Ce post aborde…", "Excellent point".
 - Zéro structure en 3 temps (accord + développement + question). C'est un robot.
