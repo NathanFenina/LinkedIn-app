@@ -64,11 +64,14 @@ export default function MessageriePage() {
     setSyncing(false); setMsg('')
   }
 
-  // Lu = marqué traité ET aucun message plus récent depuis. Sinon non-lu.
+  // Lu = marqué traité ET aucun message plus récent depuis. Comparaison par
+  // timestamp epoch (robuste aux différences de format de date renvoyées par la
+  // sync — sinon un même message pouvait "remonter" après resync).
   const isRead = (c: Contact) => {
     const marked = readMap[c.id]
     if (!marked) return false
-    return !c.last_message_at || c.last_message_at <= marked
+    if (!c.last_message_at) return true
+    return new Date(c.last_message_at).getTime() <= new Date(marked).getTime() + 1000
   }
   const isUnread = (c: Contact) => !c.is_sender_last && !isRead(c)
   const isImportant = (c: Contact) => (c.score || 0) >= 7
