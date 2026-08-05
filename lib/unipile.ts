@@ -314,6 +314,84 @@ export async function searchPostsBySearchUrl(
   return { items, cursor: (data.cursor as string | undefined) || undefined }
 }
 
+// ---------------------------------------------------------------------------
+// LinkedIn invitations REÇUES : lister + accepter/décliner
+//   GET  /users/invite/received?account_id=...
+//   POST /users/invite/received/{invitation_id}
+//        body { provider:"LINKEDIN", account_id, action:"accept"|"decline", shared_secret }
+// ---------------------------------------------------------------------------
+export interface RawReceivedInvitation {
+  id: string
+  invited_user?: string | null
+  date?: string
+  parsed_datetime?: string | null
+  invitation_text?: string | null
+  inviter?: {
+    inviter_name?: string
+    inviter_id?: string
+    inviter_public_identifier?: string
+    inviter_description?: string | null
+  }
+  specifics?: { provider?: string; shared_secret?: string }
+}
+
+export interface NormalizedInvitation {
+  id: string
+  name: string | null
+  headline: string | null
+  provider_id: string | null
+  public_identifier: string | null
+  message: string | null
+  date: string | null
+  shared_secret: string | null
+}
+
+export function normalizeInvitation(i: RawReceivedInvitation): NormalizedInvitation {
+  const inv = i.inviter || {}
+  return {
+    id: i.id,
+    name: inv.inviter_name || null,
+    headline: inv.inviter_description || null,
+    provider_id: inv.inviter_id || null,
+    public_identifier: inv.inviter_public_identifier || null,
+    message: i.invitation_text || null,
+    date: i.parsed_datetime || i.date || null,
+    shared_secret: i.specifics?.shared_secret || null,
+  }
+}
+
+export async function getReceivedInvitations(
+  accountId: string,
+  cursor?: string,
+  limit = 100
+): Promise<{ items: NormalizedInvitation[]; cursor?: string }> {
+  const params = new URLSearchParams({ account_id: accountId, limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+  const data = await unipileFetch(`/users/invite/received?${params.toString()}`)
+  const raw = (data.items || []) as RawReceivedInvitation[]
+  return {
+    items: raw.map(normalizeInvitation),
+    cursor: (data.cursor as string | undefined) || undefined,
+  }
+}
+
+export async function handleInvitation(
+  accountId: string,
+  invitationId: string,
+  action: 'accept' | 'decline',
+  sharedSecret?: string | null
+) {
+  return unipileFetch(`/users/invite/received/${encodeURIComponent(invitationId)}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      provider: 'LINKEDIN',
+      account_id: accountId,
+      action,
+      ...(sharedSecret ? { shared_secret: sharedSecret } : {}),
+    }),
+  })
+}
+
 export async function likePost(accountId: string, socialId: string, reaction = 'like') {
   return unipileFetch(`/posts/reaction`, {
     method: 'POST',

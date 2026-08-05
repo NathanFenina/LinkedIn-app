@@ -17,6 +17,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: '/', label: 'Conversations', icon: MessageSquare, group: 'CRM' },
   { href: '/inbox', label: 'À répondre', icon: Inbox, group: 'CRM' },
+  { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'CRM' },
   { href: '/connections', label: 'Connexions', icon: Users, group: 'CRM' },
   { href: '/visitors', label: 'Visiteurs', icon: Eye, group: 'CRM' },
   { href: '/signals', label: 'Signaux', icon: Target, group: 'OUTREACH' },

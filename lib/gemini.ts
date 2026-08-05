@@ -403,6 +403,37 @@ Texte brut uniquement. Aucun markdown, aucun label, aucun guillemet. Juste le co
     .trim()
 }
 
+// Premier message après acceptation d'une invitation reçue. Voix soft "setting"
+// de Nathan : minuscules, conditionnel, aucune vente, UNE question ouverte.
+export async function generateWelcomeMessage(params: {
+  name: string
+  headline?: string | null
+  invitationText?: string | null
+  myBusinessContext: string
+}): Promise<string> {
+  const first = (params.name || '').split(' ')[0] || ''
+  const prompt = `Tu es Nathan Fenina (Decupler — SEO organique & visibilité GEO/AI Search). Tu écris le PREMIER message LinkedIn juste après avoir accepté l'invitation de quelqu'un.
+
+CONTEXTE BUSINESS: ${params.myBusinessContext}
+PERSONNE: ${params.name}${params.headline ? ` — ${params.headline}` : ''}
+${params.invitationText ? `NOTE D'INVITATION QU'ELLE A LAISSÉE: "${params.invitationText}"` : 'ELLE N\'A PAS LAISSÉ DE NOTE.'}
+
+Règles (voix "setting" soft de Nathan) :
+- minuscules, ton parlé décontracté, conditionnel. jamais de vente, jamais de pitch d'offre.
+- commence par "hello ${first}," (ou "hello," si pas de prénom).
+- remercie brièvement pour la connexion, chaleureux, court.
+- termine par UNE seule question ouverte, facile à répondre, cadrée par "juste par curiosité" — sur ce qu'elle fait / son sujet du moment. si elle a laissé une note, rebondis dessus.
+- 2 à 3 bulles très courtes séparées par des retours à la ligne. pas d'emoji en rafale (un max, style 😊 ou 👋).
+
+Retourne UNIQUEMENT le texte du message (bulles séparées par des sauts de ligne), sans guillemets.`
+  try {
+    const result = await model.generateContent(prompt)
+    return result.response.text().trim().replace(/^["']|["']$/g, '')
+  } catch {
+    return ''
+  }
+}
+
 export async function generateReply(params: {
   contactName: string
   jobTitle: string | null
