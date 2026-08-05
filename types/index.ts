@@ -26,6 +26,8 @@ export interface Contact {
   is_sender_last: boolean
   conversation_summary: string | null
   messages_fetched: number
+  relance_count: number
+  last_relance_at: string | null
   created_at: string
   updated_at: string
 }

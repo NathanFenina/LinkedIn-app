@@ -468,6 +468,35 @@ Retourne UNIQUEMENT le texte de la note, sans guillemets.`
   }
 }
 
+// Note d'invitation à un prospect FROID sourcé (outbound). Voix soft "setting"
+// de Nathan : prétexte léger, aucune vente, UNE question ouverte. ≤ 300 car.
+export async function generateColdInviteNote(params: {
+  name: string
+  headline?: string | null
+  myBusinessContext: string
+}): Promise<string> {
+  const first = (params.name || '').split(' ')[0] || ''
+  const prompt = `Tu es Nathan Fenina (Decupler — SEO organique & visibilité GEO/AI Search). Tu écris une NOTE D'INVITATION LinkedIn (≤ 300 caractères) à un prospect FROID que tu sources en outbound (il ne te connaît pas).
+
+CONTEXTE BUSINESS: ${params.myBusinessContext}
+PERSONNE: ${params.name}${params.headline ? ` — ${params.headline}` : ''}
+
+Règles (méthode setting Decupler, voix soft) :
+- minuscules, ton parlé, conditionnel, chaleureux. AUCUNE vente, AUCUN pitch, ne juge pas.
+- commence par "hello ${first},".
+- prétexte léger et sincère (même game / son secteur / un point commun crédible), PAS "je suis passé sur votre site et vous n'avez aucune visibilité" (interdit).
+- termine par UNE question ouverte, facile, cadrée par "juste par curiosité". jamais de question business lourde ni de RDV en 1er message.
+- 1 à 2 phrases max, ≤ 300 caractères. un emoji max.
+
+Retourne UNIQUEMENT le texte de la note, sans guillemets.`
+  try {
+    const result = await model.generateContent(prompt)
+    return result.response.text().trim().replace(/^["']|["']$/g, '').slice(0, 300)
+  } catch {
+    return ''
+  }
+}
+
 export async function generateReply(params: {
   contactName: string
   jobTitle: string | null

@@ -392,6 +392,43 @@ export async function handleInvitation(
   })
 }
 
+// Recherche de PROFILS via une URL de recherche LinkedIn (Sales Nav / classic)
+// collée par l'utilisateur. Unipile accepte l'URL brute dans le body {url}.
+export interface FoundPerson {
+  provider_id: string | null
+  name: string | null
+  headline: string | null
+  profile_url: string | null
+  public_identifier: string | null
+  location: string | null
+}
+
+export async function searchPeopleBySearchUrl(
+  accountId: string,
+  searchUrl: string,
+  cursor?: string
+): Promise<{ items: FoundPerson[]; cursor?: string }> {
+  const params = new URLSearchParams({ account_id: accountId })
+  if (cursor) params.set('cursor', cursor)
+  const data = await unipileFetch(`/linkedin/search?${params.toString()}`, {
+    method: 'POST',
+    body: JSON.stringify({ url: searchUrl }),
+  })
+  const raw = (data.items || []) as Array<Record<string, unknown>>
+  const items: FoundPerson[] = raw.map((p) => ({
+    provider_id: (p.id as string) || (p.provider_id as string) || null,
+    name:
+      (p.name as string) ||
+      [p.first_name, p.last_name].filter(Boolean).join(' ') ||
+      null,
+    headline: (p.headline as string) || (p.occupation as string) || null,
+    profile_url: (p.profile_url as string) || (p.public_profile_url as string) || null,
+    public_identifier: (p.public_identifier as string) || null,
+    location: (p.location as string) || null,
+  }))
+  return { items, cursor: (data.cursor as string | undefined) || undefined }
+}
+
 export async function likePost(accountId: string, socialId: string, reaction = 'like') {
   return unipileFetch(`/posts/reaction`, {
     method: 'POST',
