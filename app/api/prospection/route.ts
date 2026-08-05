@@ -14,7 +14,10 @@ export async function GET() {
     } catch {}
     const { data, error } = await query
     if (error) throw error
-    const contacts = (data || []) as Contact[]
+    // On sort les leads écartés (do_not_contact) et clos (treated/client) —
+    // ils ne doivent plus polluer "à traiter" / "relances".
+    const HIDDEN = new Set(['do_not_contact', 'treated', 'client'])
+    const contacts = ((data || []) as Contact[]).filter((c) => !HIDDEN.has(c.status))
 
     const toTreat = contacts
       .filter(needsReply)
