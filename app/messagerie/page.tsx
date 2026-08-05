@@ -21,20 +21,23 @@ export default function MessageriePage() {
   const [filter, setFilter] = useState<Filter>('unread')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [readIds, setReadIds] = useState<Set<string>>(new Set())
+  // "Lu/Traité" = map { contactId → last_message_at au moment où on l'a marqué }.
+  // Si un message plus récent arrive, la conv redevient non-lue automatiquement.
+  const [readMap, setReadMap] = useState<Record<string, string>>({})
+  const [syncing, setSyncing] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [historyById, setHistoryById] = useState<Record<string, Array<{ text: string; is_sender: boolean; timestamp: string }>>>({})
   const [historyLoading, setHistoryLoading] = useState<string | null>(null)
 
-  // "Marqué lu" persistant côté navigateur (local, aucune action LinkedIn).
+  // "Traité" persistant côté navigateur (local, aucune action LinkedIn).
   useEffect(() => {
     try {
       const raw = localStorage.getItem(READ_KEY)
-      if (raw) setReadIds(new Set(JSON.parse(raw)))
+      if (raw) setReadMap(JSON.parse(raw))
     } catch {}
   }, [])
-  const persistRead = (s: Set<string>) => {
-    try { localStorage.setItem(READ_KEY, JSON.stringify([...s])) } catch {}
+  const persistRead = (m: Record<string, string>) => {
+    try { localStorage.setItem(READ_KEY, JSON.stringify(m)) } catch {}
   }
 
   const fetchData = useCallback(async () => {
@@ -48,16 +51,35 @@ export default function MessageriePage() {
   }, [])
   useEffect(() => { fetchData() }, [fetchData])
 
-  const isUnread = (c: Contact) => !c.is_sender_last && !readIds.has(c.id)
+  // Rafraîchir = RESYNCHRONISER depuis LinkedIn (pour refléter ce que tu as
+  // traité directement sur LinkedIn), puis recharger.
+  const refresh = async () => {
+    setSyncing(true); setMsg('Synchronisation depuis LinkedIn…')
+    try {
+      await fetch('/api/sync/conversations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pageSize: 40 }),
+      })
+    } catch {}
+    await fetchData()
+    setSyncing(false); setMsg('')
+  }
+
+  // Lu = marqué traité ET aucun message plus récent depuis. Sinon non-lu.
+  const isRead = (c: Contact) => {
+    const marked = readMap[c.id]
+    if (!marked) return false
+    return !c.last_message_at || c.last_message_at <= marked
+  }
+  const isUnread = (c: Contact) => !c.is_sender_last && !isRead(c)
   const isImportant = (c: Contact) => (c.score || 0) >= 7
 
   const rows = useMemo(() => {
     let list = contacts
     if (filter === 'unread') list = contacts.filter(isUnread)
-    else if (filter === 'important') list = contacts.filter((c) => isImportant(c) && !readIds.has(c.id))
+    else if (filter === 'important') list = contacts.filter((c) => isImportant(c) && !isRead(c))
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts, filter, readIds])
+  }, [contacts, filter, readMap])
 
   const unreadCount = contacts.filter(isUnread).length
   const importantCount = contacts.filter((c) => isImportant(c) && isUnread(c)).length
@@ -130,7 +152,13 @@ export default function MessageriePage() {
   }
 
   const markRead = (ids: string[]) => {
-    setReadIds((prev) => { const n = new Set(prev); ids.forEach((i) => n.add(i)); persistRead(n); return n })
+    setReadMap((prev) => {
+      const n = { ...prev }
+      const now = new Date().toISOString()
+      ids.forEach((i) => { const c = contacts.find((x) => x.id === i); n[i] = c?.last_message_at || now })
+      persistRead(n)
+      return n
+    })
     setSelected((prev) => { const n = new Set(prev); ids.forEach((i) => n.delete(i)); return n })
   }
 
@@ -167,8 +195,9 @@ export default function MessageriePage() {
               <p className="text-xs text-gray-500">Tes conversations. L&apos;IA prépare la réponse, tu valides et tu envoies (à l&apos;unité ou en lot).</p>
             </div>
           </div>
-          <button onClick={fetchData} disabled={loading} className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
+          <button onClick={refresh} disabled={loading || syncing} title="Resynchronise depuis LinkedIn puis recharge"
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+            <RefreshCw className={`w-4 h-4 ${loading || syncing ? 'animate-spin' : ''}`} /> {syncing ? 'Sync…' : 'Rafraîchir'}
           </button>
         </div>
       </header>
