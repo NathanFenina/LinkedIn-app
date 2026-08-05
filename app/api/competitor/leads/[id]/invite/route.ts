@@ -2,6 +2,7 @@ import { getServerSupabase } from '@/lib/supabase'
 import { sendLinkedInInvitation } from '@/lib/unipile'
 import { generateInvitationMessage } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
+import { guard } from '@/lib/limits'
 
 const DEFAULT_CONTEXT =
   process.env.SIGNAL_BUSINESS_CONTEXT ||
@@ -59,6 +60,12 @@ export async function POST(
       ACCOUNT_ID = acc?.unipile_account_id || (await getActiveAccountId())
     } else {
       ACCOUNT_ID = await getActiveAccountId()
+    }
+
+    // Garde-fou LinkedIn : blocage dur si plafond invitations / global atteint.
+    const g = await guard(db, ACCOUNT_ID, 'invite')
+    if (!g.allowed) {
+      return Response.json({ error: g.reason, limited: true }, { status: 429 })
     }
 
     await sendLinkedInInvitation(

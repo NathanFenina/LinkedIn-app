@@ -1,6 +1,7 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { sendMessage, startNewChat } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
+import { guard } from '@/lib/limits'
 
 export async function POST(request: Request) {
   const { contact_id, chat_id, linkedin_id, text } = await request.json()
@@ -11,6 +12,13 @@ export async function POST(request: Request) {
 
   try {
     const db = getServerSupabase()
+
+    // Garde-fou LinkedIn : blocage dur si plafond messages / global atteint.
+    const accountId = await getActiveAccountId()
+    const g = await guard(db, accountId, 'dm')
+    if (!g.allowed) {
+      return Response.json({ error: g.reason, limited: true }, { status: 429 })
+    }
 
     let finalChatId = chat_id
 

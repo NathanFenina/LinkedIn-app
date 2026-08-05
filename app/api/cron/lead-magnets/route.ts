@@ -10,6 +10,7 @@
 
 import { getServerSupabase } from '@/lib/supabase'
 import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
+import { guard } from '@/lib/limits'
 
 export const maxDuration = 300
 
@@ -136,6 +137,8 @@ async function runJob() {
             .replace(/\{name\}/gi, (n.commenter_name || '').split(' ')[0] || '')
             .replace(/\{magnet_url\}/gi, campaign.magnet_url || '')
 
+          const g = await guard(db, ACCOUNT_ID, 'dm')
+          if (!g.allowed) break // blocage dur : plafond messages/global atteint
           try {
             await startNewChat(ACCOUNT_ID, providerId, personalised)
             await db.from('lead_magnet_sends').insert({

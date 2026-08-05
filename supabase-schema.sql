@@ -366,4 +366,17 @@ CREATE INDEX IF NOT EXISTS idx_comment_sends_campaign ON comment_sends(campaign_
 CREATE INDEX IF NOT EXISTS idx_comment_sends_created ON comment_sends(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comment_campaigns_account ON comment_campaigns(linkedin_account_id);
 
+-- ===========================================================================
+-- Garde-fous LinkedIn : journal des actions (compteur global anti-ban).
+-- Une ligne par action envoyée (comment/dm/invite/accept/profile_view).
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS linkedin_actions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_linkedin_actions_acct_time ON linkedin_actions(account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_linkedin_actions_acct_type_time ON linkedin_actions(account_id, type, created_at DESC);
+
 NOTIFY pgrst, 'reload schema';

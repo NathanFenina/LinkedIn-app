@@ -1,6 +1,7 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
+import { guard } from '@/lib/limits'
 
 export const maxDuration = 300
 
@@ -127,6 +128,11 @@ export async function POST(
           continue
         }
 
+        const g = await guard(db, ACCOUNT_ID, 'dm')
+        if (!g.allowed) {
+          errors.push(g.reason || 'Plafond messages atteint')
+          break // blocage dur
+        }
         try {
           await startNewChat(ACCOUNT_ID, providerId, personalised)
           await db.from('lead_magnet_sends').insert({

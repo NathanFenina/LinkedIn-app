@@ -1,5 +1,7 @@
 import { handleInvitation, startNewChat } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
+import { getServerSupabase } from '@/lib/supabase'
+import { guard } from '@/lib/limits'
 
 export const maxDuration = 60
 
@@ -18,16 +20,29 @@ export async function POST(
 
   try {
     const accountId = await getActiveAccountId()
+    const db = getServerSupabase()
+
+    // Garde-fou : accepter compte comme une action ; décliner est neutre.
+    if (action === 'accept') {
+      const g = await guard(db, accountId, 'accept')
+      if (!g.allowed) return Response.json({ error: g.reason, limited: true }, { status: 429 })
+    }
     await handleInvitation(accountId, id, action, sharedSecret)
 
     let messaged = false
     let messageError: string | null = null
     if (action === 'accept' && message && providerId) {
-      try {
-        await startNewChat(accountId, providerId, message)
-        messaged = true
-      } catch (err) {
-        messageError = String(err)
+      // Le message de bienvenue = un DM → soumis au garde-fou messages.
+      const gm = await guard(db, accountId, 'dm')
+      if (!gm.allowed) {
+        messageError = gm.reason || 'Plafond messages atteint'
+      } else {
+        try {
+          await startNewChat(accountId, providerId, message)
+          messaged = true
+        } catch (err) {
+          messageError = String(err)
+        }
       }
     }
     return Response.json({ ok: true, action, messaged, message_error: messageError })

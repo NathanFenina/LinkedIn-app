@@ -2,6 +2,7 @@ import { getServerSupabase } from '@/lib/supabase'
 import { sendLinkedInInvitation } from '@/lib/unipile'
 import { generateInvitationMessage } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
+import { guard } from '@/lib/limits'
 
 export const maxDuration = 300
 
@@ -92,6 +93,11 @@ export async function POST(request: Request) {
         continue
       }
 
+      const g = await guard(db, ACCOUNT_ID, 'invite')
+      if (!g.allowed) {
+        errors.push(g.reason || 'Plafond invitations atteint')
+        break // blocage dur : on arrête la boucle d'invitations
+      }
       try {
         await sendLinkedInInvitation(ACCOUNT_ID, providerId, message || undefined)
         await db

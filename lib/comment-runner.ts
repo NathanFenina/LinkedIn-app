@@ -10,6 +10,7 @@ import {
 } from '@/lib/unipile'
 import { generateLinkedInComment } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
+import { guard } from '@/lib/limits'
 import type { CommentCampaign } from '@/types'
 
 type Db = ReturnType<typeof getServerSupabase>
@@ -242,6 +243,12 @@ export async function postNextDraft(db: Db, campaign: CommentCampaign): Promise<
   }
 
   const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
+
+  // Garde-fou LinkedIn : blocage dur si plafond commentaires / global atteint.
+  const g = await guard(db, ACCOUNT_ID, 'comment')
+  if (!g.allowed) {
+    return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: g.reason }
+  }
 
   try {
     await sendPostComment(ACCOUNT_ID, draft.post_social_id, draft.comment_text || '')
