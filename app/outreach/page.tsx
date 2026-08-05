@@ -108,7 +108,15 @@ export default function OutreachPage() {
       const res = await fetch(`/api/outreach/${id}/source`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur')
-      setMsg(`✓ ${data.added} profils ajoutés · ${data.skipped_dup} déjà connus/dans une autre campagne (sur ${data.total} trouvés)`)
+      if (data.total === 0) {
+        setMsg('⚠️ LinkedIn n’a renvoyé aucun profil pour cette URL. Vérifie que c’est bien une URL de recherche de personnes (…/search/results/people/…) et que ton compte y a accès.')
+      } else {
+        const parts = [`✓ ${data.added} ajoutés à valider`]
+        if (data.skipped_dup) parts.push(`${data.skipped_dup} déjà dans une campagne`)
+        if (data.skipped_noid) parts.push(`${data.skipped_noid} sans identifiant`)
+        if (data.errors) parts.push(`${data.errors} en erreur${data.error_sample ? ` (${data.error_sample})` : ''}`)
+        setMsg(`${parts.join(' · ')} — sur ${data.total} trouvés`)
+      }
       await loadTargets(id); await fetchCampaigns()
     } catch (err) { setMsg('Erreur sourcing : ' + errMsg(err)) } finally { setBusy(null) }
   }
@@ -141,7 +149,10 @@ export default function OutreachPage() {
       const res = await fetch(`/api/outreach/${id}/run`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur')
-      setMsg(data.sent ? `✓ ${data.step} envoyé à ${data.target}` : (data.skipped_reason || data.error || 'Rien à envoyer'))
+      if (data.sent) setMsg(`✓ ${data.step} envoyé à ${data.target}`)
+      else if (data.skipped_reason === 'Aucun approuvé en attente')
+        setMsg('Rien à envoyer : commence par « Sourcer » puis garde des profils dans « À valider ».')
+      else setMsg(data.skipped_reason || data.error || 'Rien à envoyer')
       await loadTargets(id); await fetchCampaigns()
     } catch (err) { setMsg('Erreur : ' + errMsg(err)) } finally { setBusy(null) }
   }

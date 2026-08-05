@@ -23,35 +23,60 @@ function personalize(tpl: string, name: string | null): string {
   return (tpl || '').replace(/\{prenom\}/gi, first).replace(/\{nom\}/gi, name || '')
 }
 
+export interface SourceResult {
+  added: number
+  total: number
+  skipped_dup: number
+  skipped_noid: number
+  errors: number
+  error_sample?: string
+}
+
 // ÉTAPE 1 — Source les profils d'une URL, les score (IA vs ICP), et les insère
-// en 'sourced' (dédup contre TOUTES les campagnes + les contacts déjà échangés).
-export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promise<{ added: number; total: number; skipped_dup: number }> {
-  if (!campaign.search_url) return { added: 0, total: 0, skipped_dup: 0 }
+// en 'sourced' (dédup contre TOUTES les campagnes). Diagnostique : on distingue
+// les vrais doublons, les profils sans identifiant exploitable, et les erreurs
+// d'insertion — pour ne plus jamais avoir un "À valider = 0" inexpliqué.
+export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promise<SourceResult> {
+  if (!campaign.search_url) throw new Error('Cette campagne n’a pas d’URL de recherche.')
   const accountId = await accountFor(db, campaign.linkedin_account_id)
   const { items } = await searchPeopleBySearchUrl(accountId, campaign.search_url)
+  const total = items.length
 
-  const ids = items.map((p) => p.provider_id).filter(Boolean) as string[]
-  // Déjà dans une campagne outreach (n'importe laquelle) ?
+  // Clé d'identité : provider_id (ACoAA…) sinon public_identifier — pour dédup
+  // et insertion même si Unipile ne renvoie pas toujours le provider_id.
+  const idOf = (p: (typeof items)[number]) => p.provider_id || p.public_identifier || null
+
+  const ids = items.map(idOf).filter(Boolean) as string[]
   const inCampaign = new Set<string>()
   if (ids.length) {
-    const { data } = await db.from('outreach_targets').select('provider_id').in('provider_id', ids)
-    ;(data || []).forEach((r) => r.provider_id && inCampaign.add(r.provider_id))
+    const { data: byProv } = await db.from('outreach_targets').select('provider_id, public_identifier').in('provider_id', ids)
+    ;(byProv || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id); if (r.public_identifier) inCampaign.add(r.public_identifier) })
   }
 
-  let added = 0
-  let skipped = 0
-  for (const p of items) {
-    if (!p.provider_id) continue
-    if (inCampaign.has(p.provider_id)) { skipped++; continue }
-    let score = 5
-    let reason = ''
+  let added = 0, skipped_dup = 0, skipped_noid = 0, errors = 0
+  let error_sample: string | undefined
+
+  // Ne garde que les profils neufs avec un identifiant, puis score en parallèle.
+  const fresh = items.filter((p) => {
+    const id = idOf(p)
+    if (!id) { skipped_noid++; return false }
+    if (inCampaign.has(id)) { skipped_dup++; return false }
+    return true
+  })
+
+  const scored = await Promise.all(fresh.map(async (p) => {
     try {
       const s = await scoreProfile({ name: p.name || '', jobTitle: p.headline || null, myBusinessContext: DEFAULT_CONTEXT })
-      score = s.score; reason = s.reason
-    } catch { /* score par défaut */ }
+      return { p, score: s.score, reason: s.reason }
+    } catch {
+      return { p, score: 5, reason: '' }
+    }
+  }))
+
+  for (const { p, score, reason } of scored) {
     const { error } = await db.from('outreach_targets').insert({
       campaign_id: campaign.id,
-      provider_id: p.provider_id,
+      provider_id: p.provider_id || null,
       name: p.name,
       headline: p.headline,
       profile_url: p.profile_url,
@@ -61,9 +86,10 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
       status: 'sourced',
     })
     if (!error) added++
-    else skipped++
+    else { errors++; if (!error_sample) error_sample = error.message }
   }
-  return { added, total: items.length, skipped_dup: skipped }
+
+  return { added, total, skipped_dup, skipped_noid, errors, error_sample }
 }
 
 // Combien envoyés aujourd'hui sur cette campagne (plafond quotidien campagne).
