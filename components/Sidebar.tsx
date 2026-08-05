@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Inbox } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 
@@ -15,15 +15,15 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
-  { href: '/', label: 'Conversations', icon: MessageSquare, group: 'CRM' },
-  { href: '/inbox', label: 'À répondre', icon: Inbox, group: 'CRM' },
-  { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'CRM' },
-  { href: '/connections', label: 'Connexions', icon: Users, group: 'CRM' },
+  { href: '/messagerie', label: 'Messagerie', icon: MessageSquare, group: 'MESSAGES' },
+  { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'MESSAGES' },
+  { href: '/', label: 'CRM (leads)', icon: Users, group: 'CRM' },
+  { href: '/connections', label: 'Connexions', icon: LinkIcon, group: 'CRM' },
   { href: '/visitors', label: 'Visiteurs', icon: Eye, group: 'CRM' },
+  { href: '/comments', label: 'Commentaires auto', icon: MessageCircle, group: 'OUTREACH' },
   { href: '/signals', label: 'Signaux', icon: Target, group: 'OUTREACH' },
   { href: '/jobs', label: 'Jobs', icon: Briefcase, group: 'OUTREACH' },
   { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'OUTREACH' },
-  { href: '/comments', label: 'Commentaires auto', icon: MessageCircle, group: 'OUTREACH' },
   { href: '/competitor', label: 'Outreach concurrent', icon: UserPlus2, group: 'OUTREACH' },
   { href: '/templates', label: 'Templates', icon: FileText, group: 'CONFIG' },
   { href: '/automations', label: 'Automations', icon: Zap, group: 'CONFIG' },
@@ -48,7 +48,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {(['CRM', 'OUTREACH', 'CONFIG'] as const).map((group) => (
+        {(['MESSAGES', 'CRM', 'OUTREACH', 'CONFIG'] as const).map((group) => (
           <div key={group} className="pt-2 first:pt-0">
             <div className="px-3 py-1 text-[10px] font-bold text-gray-400 tracking-widest">{group}</div>
             {NAV.filter((n) => n.group === group).map(({ href, label, icon: Icon, disabled }) => {
