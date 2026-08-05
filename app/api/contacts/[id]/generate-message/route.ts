@@ -36,7 +36,7 @@ export async function POST(
 
     let messages: Array<{ text: string; is_sender: boolean; created_at: string }> = []
     if (contact.chat_id) {
-      const raw = await getChatMessages(contact.chat_id, 15)
+      const raw = await getChatMessages(contact.chat_id, 25)
       messages = raw.map((m) => ({
         text: m.text,
         is_sender: m.is_sender === 1 || m.is_sender === true,

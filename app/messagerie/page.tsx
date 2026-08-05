@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, Fragment } from 'react'
 import { Contact, ContactStatus, STATUS_LABELS, STATUS_OPTIONS } from '@/types'
-import { MessageSquare, Sparkles, Send, RefreshCw, Loader2, CheckCircle2, AlertCircle, X, Check, Star, Mail } from 'lucide-react'
+import { MessageSquare, Sparkles, Send, RefreshCw, Loader2, CheckCircle2, AlertCircle, X, Check, Star, Mail, History, ChevronDown } from 'lucide-react'
 import { formatDistanceToNow } from '@/lib/utils'
 
 const DEFAULT_GOAL =
@@ -22,6 +22,9 @@ export default function MessageriePage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [readIds, setReadIds] = useState<Set<string>>(new Set())
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [historyById, setHistoryById] = useState<Record<string, Array<{ text: string; is_sender: boolean; timestamp: string }>>>({})
+  const [historyLoading, setHistoryLoading] = useState<string | null>(null)
 
   // "Marqué lu" persistant côté navigateur (local, aucune action LinkedIn).
   useEffect(() => {
@@ -131,6 +134,17 @@ export default function MessageriePage() {
     setSelected((prev) => { const n = new Set(prev); ids.forEach((i) => n.delete(i)); return n })
   }
 
+  const toggleHistory = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return }
+    setExpandedId(id)
+    if (!historyById[id]) {
+      setHistoryLoading(id)
+      const data = await fetch(`/api/contacts/${id}/thread`).then((r) => r.json()).catch(() => [])
+      setHistoryById((p) => ({ ...p, [id]: Array.isArray(data) ? data : [] }))
+      setHistoryLoading(null)
+    }
+  }
+
   const toggle = (id: string) => setSelected((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
   const allSel = rows.length > 0 && rows.every((c) => selected.has(c.id))
   const toggleAll = () => setSelected(allSel ? new Set() : new Set(rows.map((c) => c.id)))
@@ -213,24 +227,47 @@ export default function MessageriePage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
-                <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50/50 align-top">
+              {rows.map((c) => {
+                const text = drafts[c.id] ?? ''
+                return (
+                <Fragment key={c.id}>
+                <tr className="border-b border-gray-50 hover:bg-gray-50/50 align-top">
                   <td className="p-3"><input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} /></td>
                   <td className="p-3">
-                    <div className="font-medium text-gray-900 flex items-center gap-1">{c.name}{isImportant(c) && <Star className="w-3 h-3 text-amber-500 fill-amber-500" />}</div>
-                    {c.job_title && <div className="text-[11px] text-gray-400 line-clamp-1">{c.job_title}</div>}
-                    <div className="text-[10px] text-gray-300">{c.last_message_at ? formatDistanceToNow(c.last_message_at) : ''}</div>
+                    <div className="flex items-center gap-2">
+                      {c.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0 border border-gray-100" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                          {(c.name || '?').slice(0, 1).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 flex items-center gap-1 text-[13px]">{c.name}{isImportant(c) && <Star className="w-3 h-3 text-amber-500 fill-amber-500" />}</div>
+                        {c.job_title && <div className="text-[10px] text-gray-400 line-clamp-1">{c.job_title}</div>}
+                        <div className="text-[10px] text-gray-300">{c.last_message_at ? formatDistanceToNow(c.last_message_at) : ''}</div>
+                      </div>
+                    </div>
                   </td>
-                  <td className="p-3 text-[13px] text-gray-600"><div className="line-clamp-3">{c.last_message || <span className="text-gray-300">—</span>}</div></td>
+                  <td className="p-3 text-[13px] text-gray-600">
+                    <div className="line-clamp-3">{c.last_message || <span className="text-gray-300">—</span>}</div>
+                    <button onClick={() => toggleHistory(c.id)} className="mt-1 inline-flex items-center gap-1 text-[10px] text-blue-600 hover:underline">
+                      <History className="w-3 h-3" /> historique <ChevronDown className={`w-3 h-3 transition ${expandedId === c.id ? 'rotate-180' : ''}`} />
+                    </button>
+                  </td>
                   <td className="p-3">
-                    {drafts[c.id] !== undefined ? (
-                      <textarea value={drafts[c.id]} onChange={(e) => setDrafts((p) => ({ ...p, [c.id]: e.target.value }))} rows={3}
-                        className="w-full text-[13px] text-gray-900 border border-gray-200 rounded-lg p-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none" />
-                    ) : (
-                      <button disabled={busyId === c.id} onClick={() => prepareOne(c.id)} className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">
-                        {busyId === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Préparer
-                      </button>
-                    )}
+                    <textarea
+                      value={text}
+                      onChange={(e) => setDrafts((p) => ({ ...p, [c.id]: e.target.value }))}
+                      rows={3}
+                      placeholder="écris ta réponse, ou clique « IA » pour la générer…"
+                      className="w-full text-[13px] text-gray-900 border border-gray-200 rounded-lg p-2 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none"
+                    />
+                    <button disabled={busyId === c.id} onClick={() => prepareOne(c.id)}
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] px-2 py-0.5 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                      {busyId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} {text ? 'Régénérer IA' : 'IA'}
+                    </button>
                   </td>
                   <td className="p-3">
                     <select value={c.status} onChange={(e) => setStatus(c, e.target.value as ContactStatus)} className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-gray-600">
@@ -238,19 +275,44 @@ export default function MessageriePage() {
                     </select>
                   </td>
                   <td className="p-3">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button disabled={busyId === c.id || !drafts[c.id]?.trim()} onClick={() => send(c)} title="Envoyer"
-                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-30">
-                        <Send className="w-3.5 h-3.5" />
+                    <div className="flex flex-col items-end gap-1.5">
+                      <button disabled={busyId === c.id || !text.trim()} onClick={() => send(c)}
+                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-30 w-full justify-center">
+                        <Send className="w-3.5 h-3.5" /> Envoyer
                       </button>
-                      <button onClick={() => markRead([c.id])} title="Marquer comme lu (le sort de la to-do)"
-                        className="inline-flex items-center text-xs px-2 py-1.5 border border-gray-200 text-gray-400 rounded-lg hover:bg-gray-100 hover:text-gray-600">
-                        <Check className="w-3.5 h-3.5" />
+                      <button onClick={() => markRead([c.id])} title="Traité — le sort des non lus"
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded-lg hover:bg-green-50 hover:text-green-700 hover:border-green-200 w-full justify-center">
+                        <Check className="w-3.5 h-3.5" /> Traité
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+                {expandedId === c.id && (
+                  <tr className="bg-gray-50/70">
+                    <td></td>
+                    <td colSpan={5} className="p-3">
+                      <div className="text-[10px] font-bold uppercase text-gray-400 mb-1.5">Historique de la conversation</div>
+                      {historyLoading === c.id ? (
+                        <div className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> chargement…</div>
+                      ) : (historyById[c.id] || []).length === 0 ? (
+                        <div className="text-xs text-gray-400">Aucun message récupéré.</div>
+                      ) : (
+                        <div className="space-y-1.5 max-w-2xl">
+                          {(historyById[c.id] || []).map((m, i) => (
+                            <div key={i} className={`flex ${m.is_sender ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`text-[13px] rounded-2xl px-3 py-1.5 max-w-[80%] ${m.is_sender ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+                                {m.text}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                )
+              })}
             </tbody>
           </table>
 
