@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
+import { LimitsBadge } from './LimitsBadge'
 
 type NavItem = {
   href: string
@@ -85,6 +86,8 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+
+      <LimitsBadge />
 
       <div className="p-2 border-t border-gray-100">
         <Link
