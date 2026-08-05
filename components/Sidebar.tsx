@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Inbox } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 
@@ -16,6 +16,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Conversations', icon: MessageSquare, group: 'CRM' },
+  { href: '/inbox', label: 'À répondre', icon: Inbox, group: 'CRM' },
   { href: '/connections', label: 'Connexions', icon: Users, group: 'CRM' },
   { href: '/visitors', label: 'Visiteurs', icon: Eye, group: 'CRM' },
   { href: '/signals', label: 'Signaux', icon: Target, group: 'OUTREACH' },
