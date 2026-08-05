@@ -142,7 +142,10 @@ export async function generateDrafts(
   const fresh: SearchPost[] = []
   let cursor: string | undefined = undefined
   let pages = 0
-  while (fresh.length < limit && pages < 6) {
+  // On va chercher en profondeur (jusqu'à 15 pages) tant qu'on n'a pas atteint
+  // le plafond : le seul frein doit être le nombre réel de posts <24h dispo
+  // chez tes membres, pas une pagination trop courte qui bridait à ~15.
+  while (fresh.length < limit && pages < 15) {
     const { items, cursor: next } = await searchPostsBySearchUrl(ACCOUNT_ID, searchUrl, cursor)
     pages++
     for (const p of items) {
