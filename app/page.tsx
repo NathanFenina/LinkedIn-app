@@ -22,7 +22,7 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority' | 'pipeline'>('priority')
+  const [view, setView] = useState<'all' | 'waiting' | 'followup' | 'priority' | 'pipeline'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState('')
@@ -242,8 +242,8 @@ export default function ConversationsPage() {
   return (
     <>
       <PageHeader
-        title="Conversations"
-        subtitle={`${contacts.length} au total · ${waitingCount} en attente de ta réponse · ${followupCount} à relancer · ${unscoredCount} non scorées`}
+        title="CRM — leads"
+        subtitle={`${contacts.length} leads · ${waitingCount} en attente de ta réponse · ${followupCount} à relancer · ${unscoredCount} non scorés`}
         onSynced={fetchData}
         helpSectionId="conversations"
       />
