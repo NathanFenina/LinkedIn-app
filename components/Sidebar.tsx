@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, LayoutDashboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -16,6 +16,7 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
+  { href: '/pilotage', label: 'À faire aujourd\'hui', icon: LayoutDashboard, group: 'PILOTAGE' },
   { href: '/messagerie', label: 'Messagerie', icon: MessageSquare, group: 'MESSAGES' },
   { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'MESSAGES' },
   { href: '/', label: 'CRM (leads)', icon: Users, group: 'CRM' },
@@ -49,7 +50,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {(['MESSAGES', 'CRM', 'OUTREACH', 'CONFIG'] as const).map((group) => (
+        {(['PILOTAGE', 'MESSAGES', 'CRM', 'OUTREACH', 'CONFIG'] as const).map((group) => (
           <div key={group} className="pt-2 first:pt-0">
             <div className="px-3 py-1 text-[10px] font-bold text-gray-400 tracking-widest">{group}</div>
             {NAV.filter((n) => n.group === group).map(({ href, label, icon: Icon, disabled }) => {
