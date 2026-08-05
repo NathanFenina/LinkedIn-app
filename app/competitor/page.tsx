@@ -36,6 +36,7 @@ export default function CompetitorPage() {
   const [createError, setCreateError] = useState('')
   const [search, setSearch] = useState('')
   const [savedToCrm, setSavedToCrm] = useState<Set<string>>(new Set())
+  const [draftById, setDraftById] = useState<Record<string, string>>({})
 
   const fetchAll = useCallback(async () => {
     const t = await fetch('/api/competitor/targets').then((r) => r.json())
@@ -145,18 +146,39 @@ export default function CompetitorPage() {
     await fetch(`/api/competitor/leads/${id}`, { method: 'DELETE' })
   }
 
-  const inviteLead = async (id: string) => {
+  // Étape 1 : générer le message SANS envoyer (preview), pour le relire/éditer.
+  const prepareInvite = async (id: string) => {
     setBusy(`invite-${id}`)
     try {
       const res = await fetch(`/api/competitor/leads/${id}/invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ generate_ai: true }),
+        body: JSON.stringify({ preview: true, generate_ai: true }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
+      setDraftById((p) => ({ ...p, [id]: data.preview_message || '' }))
+    } catch (err) {
+      setMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Étape 2 : envoyer l'invitation avec le message (édité) validé à la main.
+  const sendInvite = async (id: string) => {
+    setBusy(`invite-${id}`)
+    try {
+      const res = await fetch(`/api/competitor/leads/${id}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: (draftById[id] || '').trim() || undefined, generate_ai: !draftById[id] }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(`${data.error}${data.limited ? ' (garde-fou LinkedIn)' : ''}`)
       updateLead(id, { status: 'invited', invitation_message: data.invitation_message, invited_at: data.invited_at })
-      setMsg(`Invitation envoyée à ${data.commenter_name || ''}`)
+      setDraftById((p) => { const n = { ...p }; delete n[id]; return n })
+      setMsg(`Invitation envoyée à ${data.commenter_name || ''} ✅`)
     } catch (err) {
       setMsg(`Erreur: ${String(err)}`)
     } finally {
@@ -433,14 +455,14 @@ export default function CompetitorPage() {
                           >
                             {savedToCrm.has(l.id) ? '✓ Dans le CRM' : '→ CRM'}
                           </button>
-                          {l.status === 'new' || l.status === 'qualified' ? (
+                          {(l.status === 'new' || l.status === 'qualified') && draftById[l.id] === undefined ? (
                             <button
-                              onClick={() => inviteLead(l.id)}
+                              onClick={() => prepareInvite(l.id)}
                               disabled={busy !== null}
-                              className="text-[11px] px-2 py-1 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50 inline-flex items-center gap-1"
+                              className="text-[11px] px-2 py-1 border border-orange-300 text-orange-700 rounded hover:bg-orange-50 disabled:opacity-50 inline-flex items-center gap-1"
                             >
-                              <Send className={`w-3 h-3 ${busy === `invite-${l.id}` ? 'animate-pulse' : ''}`} />
-                              Inviter (IA)
+                              <Sparkles className={`w-3 h-3 ${busy === `invite-${l.id}` ? 'animate-pulse' : ''}`} />
+                              Préparer le message
                             </button>
                           ) : null}
                           <select
@@ -469,6 +491,26 @@ export default function CompetitorPage() {
                         <p className={`text-[11px] mt-1 italic ${l.score >= 7 ? 'text-green-700' : 'text-gray-400'}`}>
                           ✨ {l.score_reason}
                         </p>
+                      )}
+                      {draftById[l.id] !== undefined && (
+                        <div className="mt-2 border border-orange-200 rounded-lg p-2 bg-orange-50/50">
+                          <div className="text-[10px] font-bold uppercase text-orange-600 mb-1">Message d&apos;invitation — édite, puis envoie</div>
+                          <textarea
+                            value={draftById[l.id]}
+                            onChange={(e) => setDraftById((p) => ({ ...p, [l.id]: e.target.value }))}
+                            rows={3} maxLength={300}
+                            className="w-full text-[13px] text-gray-900 border border-gray-200 rounded p-2 focus:border-orange-400 focus:outline-none"
+                          />
+                          <div className="flex items-center gap-2 mt-1">
+                            <button onClick={() => sendInvite(l.id)} disabled={busy !== null}
+                              className="text-[11px] px-2.5 py-1 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50 inline-flex items-center gap-1">
+                              <Send className="w-3 h-3" /> Envoyer l&apos;invitation
+                            </button>
+                            <button onClick={() => setDraftById((p) => { const n = { ...p }; delete n[l.id]; return n })}
+                              className="text-[11px] px-2.5 py-1 border border-gray-300 rounded hover:bg-white">Annuler</button>
+                            <span className="text-[10px] text-gray-400 ml-auto">{(draftById[l.id] || '').length}/300</span>
+                          </div>
+                        </div>
                       )}
                       {l.invitation_message && (
                         <p className="text-[11px] text-orange-700 mt-1 bg-orange-50 rounded px-2 py-1">

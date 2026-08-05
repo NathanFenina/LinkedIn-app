@@ -16,6 +16,7 @@ export async function POST(
   const body = await request.json().catch(() => ({}))
   const customMessage: string | undefined = body.message?.trim() || undefined
   const generateAi: boolean = !!body.generate_ai
+  const preview: boolean = !!body.preview // true = génère le message SANS envoyer
 
   try {
     const db = getServerSupabase()
@@ -42,6 +43,11 @@ export async function POST(
         commentText: lead.comment_text,
         myBusinessContext: DEFAULT_CONTEXT,
       })
+    }
+
+    // Mode preview : on renvoie juste le message généré, rien n'est envoyé.
+    if (preview) {
+      return Response.json({ preview_message: messageToSend || '' })
     }
 
     // Resolve account_id from the lead's target, fallback to active.
