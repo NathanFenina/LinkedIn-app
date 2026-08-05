@@ -66,7 +66,9 @@ export async function generateDrafts(
     return { generated: 0, posts_found: 0, skipped_reason: 'Aucun membre ni post', errors }
   }
 
-  const limit = opts.limit ?? 15
+  // Par défaut on génère jusqu'au plafond quotidien de la campagne (et non un
+  // 15 codé en dur qui bridait le volume même quand le plafond était plus haut).
+  const limit = opts.limit ?? campaign.daily_cap ?? 20
   const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
 
   // Posts déjà traités (tous statuts : draft, skipped, sent…) → anti-doublon.
@@ -139,7 +141,7 @@ export async function generateDrafts(
   const fresh: SearchPost[] = []
   let cursor: string | undefined = undefined
   let pages = 0
-  while (fresh.length < limit && pages < 3) {
+  while (fresh.length < limit && pages < 6) {
     const { items, cursor: next } = await searchPostsBySearchUrl(ACCOUNT_ID, searchUrl, cursor)
     pages++
     for (const p of items) {
