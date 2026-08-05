@@ -434,6 +434,40 @@ Retourne UNIQUEMENT le texte du message (bulles séparées par des sauts de lign
   }
 }
 
+// Message d'approche d'un décideur repéré via une offre d'emploi de sa boîte.
+// Voix soft "setting" de Nathan : on rebondit sur le fait qu'ils recrutent /
+// grandissent, sans pitcher, avec une question ouverte. (Note d'invitation ≤ 300.)
+export async function generateJobOutreachMessage(params: {
+  name: string
+  headline?: string | null
+  jobTitle?: string | null
+  company?: string | null
+  myBusinessContext: string
+}): Promise<string> {
+  const first = (params.name || '').split(' ')[0] || ''
+  const prompt = `Tu es Nathan Fenina (Decupler — SEO organique & visibilité GEO/AI Search). Tu écris une NOTE D'INVITATION LinkedIn (≤ 300 caractères) à un décideur que tu as repéré parce que sa boîte recrute.
+
+CONTEXTE BUSINESS: ${params.myBusinessContext}
+PERSONNE: ${params.name}${params.headline ? ` — ${params.headline}` : ''}
+SA BOÎTE: ${params.company || '(inconnue)'}
+POSTE RECRUTÉ (signal de croissance): ${params.jobTitle || '(inconnu)'}
+
+Règles (voix soft de Nathan) :
+- minuscules, ton parlé, conditionnel, chaleureux. AUCUN pitch d'offre, aucune vente.
+- commence par "hello ${first},".
+- rebondis en 1 phrase sur le fait que ça bouge / qu'ils recrutent (signe que la boîte grandit), sans en faire trop.
+- termine par UNE question ouverte, légère, cadrée par "juste par curiosité" — sur leur sujet (croissance, visibilité, acquisition), facile à répondre.
+- ≤ 300 caractères au total. pas d'emoji en rafale (un max).
+
+Retourne UNIQUEMENT le texte de la note, sans guillemets.`
+  try {
+    const result = await model.generateContent(prompt)
+    return result.response.text().trim().replace(/^["']|["']$/g, '').slice(0, 300)
+  } catch {
+    return ''
+  }
+}
+
 export async function generateReply(params: {
   contactName: string
   jobTitle: string | null

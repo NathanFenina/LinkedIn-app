@@ -38,6 +38,9 @@ export default function JobsPage() {
   const [filter, setFilter] = useState<JobPostingStatus | 'all'>('all')
   const [contactsByJob, setContactsByJob] = useState<Record<string, FoundContact[]>>({})
   const [roleByJob, setRoleByJob] = useState<Record<string, string>>({})
+  // Brouillons de message d'approche, clé = `${jobId}:${providerId}`.
+  const [contactDraft, setContactDraft] = useState<Record<string, string>>({})
+  const [contactSent, setContactSent] = useState<Set<string>>(new Set())
 
   const fetchJobs = useCallback(async () => {
     const data = await fetch('/api/jobs').then((r) => r.json())
@@ -86,6 +89,46 @@ export default function JobsPage() {
   const removeJob = async (id: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== id))
     await fetch(`/api/jobs/${id}`, { method: 'DELETE' })
+  }
+
+  const prepareContact = async (jobId: string, c: FoundContact) => {
+    const key = `${jobId}:${c.provider_id}`
+    setBusy(`prep-${key}`)
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/message`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: c.name, headline: c.headline }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setContactDraft((p) => ({ ...p, [key]: data.text || '' }))
+    } catch (err) {
+      setMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const sendContact = async (jobId: string, c: FoundContact) => {
+    const key = `${jobId}:${c.provider_id}`
+    if (!c.provider_id) { setMsg('Erreur: pas de provider_id pour ce contact.'); return }
+    if (!confirm(`Envoyer l'invitation à ${c.name} ?`)) return
+    setBusy(`send-${key}`)
+    try {
+      const res = await fetch('/api/jobs/contact', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider_id: c.provider_id, message: (contactDraft[key] || '').trim() || undefined }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(`${data.error}${data.limited ? ' (garde-fou LinkedIn)' : ''}`)
+      setContactSent((prev) => new Set(prev).add(key))
+      updateJob(jobId, { status: 'contacted' })
+      setMsg(`Invitation envoyée à ${c.name} ✅`)
+    } catch (err) {
+      setMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusy(null)
+    }
   }
 
   const findContacts = async (jobId: string) => {
@@ -257,25 +300,48 @@ export default function JobsPage() {
                     )}
                     {foundContacts && foundContacts.length > 0 && (
                       <div className="mt-2 space-y-1">
-                        {foundContacts.map((c, i) => (
-                          <div key={i} className="flex items-center gap-2 text-xs bg-gray-50 rounded px-2 py-1">
-                            <span className="font-medium">{c.name || 'Anonyme'}</span>
-                            {c.headline && <span className="text-gray-500 truncate">{c.headline}</span>}
-                            {c.profile_url && (
-                              <a
-                                href={c.profile_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:underline inline-flex items-center gap-0.5 ml-auto"
-                              >
-                                Profil <ExternalLink className="w-2.5 h-2.5" />
-                              </a>
-                            )}
-                            <span title="Bientôt: DM direct depuis ici">
-                              <Send className="w-3 h-3 text-gray-300" />
-                            </span>
-                          </div>
-                        ))}
+                        {foundContacts.map((c, i) => {
+                          const key = `${j.id}:${c.provider_id}`
+                          const draft = contactDraft[key]
+                          const sent = contactSent.has(key)
+                          return (
+                            <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{c.name || 'Anonyme'}</span>
+                                {c.headline && <span className="text-gray-500 truncate">{c.headline}</span>}
+                                {c.profile_url && (
+                                  <a href={c.profile_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5 ml-auto">
+                                    Profil <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {sent ? (
+                                  <span className="text-green-600 inline-flex items-center gap-0.5"><Send className="w-3 h-3" /> envoyé</span>
+                                ) : draft === undefined ? (
+                                  <button onClick={() => prepareContact(j.id, c)} disabled={busy !== null || !c.provider_id}
+                                    className="text-[11px] px-2 py-0.5 border border-violet-300 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-40 inline-flex items-center gap-1">
+                                    {busy === `prep-${key}` ? 'Génère…' : 'Préparer le message'}
+                                  </button>
+                                ) : null}
+                              </div>
+                              {draft !== undefined && !sent && (
+                                <div className="mt-1.5">
+                                  <textarea value={draft} onChange={(e) => setContactDraft((p) => ({ ...p, [key]: e.target.value }))}
+                                    rows={3} maxLength={300}
+                                    className="w-full text-[13px] text-gray-900 border border-gray-200 rounded p-2 focus:border-violet-400 focus:outline-none" />
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <button onClick={() => sendContact(j.id, c)} disabled={busy !== null}
+                                      className="text-[11px] px-2.5 py-1 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50 inline-flex items-center gap-1">
+                                      <Send className="w-3 h-3" /> Envoyer l&apos;invitation
+                                    </button>
+                                    <button onClick={() => setContactDraft((p) => { const n = { ...p }; delete n[key]; return n })}
+                                      className="text-[11px] px-2.5 py-1 border border-gray-300 rounded hover:bg-white">Annuler</button>
+                                    <span className="text-[10px] text-gray-400 ml-auto">{(draft || '').length}/300</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
