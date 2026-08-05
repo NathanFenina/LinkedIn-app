@@ -67,9 +67,10 @@ export async function generateDrafts(
     return { generated: 0, posts_found: 0, skipped_reason: 'Aucun membre ni post', errors }
   }
 
-  // Par défaut on génère jusqu'au plafond quotidien de la campagne (et non un
-  // 15 codé en dur qui bridait le volume même quand le plafond était plus haut).
-  const limit = opts.limit ?? campaign.daily_cap ?? 20
+  // Par défaut on génère jusqu'au plafond quotidien de la campagne. Fallback 30
+  // (et non 20) pour rester cohérent avec le posting : sinon on générait 20 mais
+  // on en postait 15, ce qui bridait invisiblement le volume à 15/jour.
+  const limit = opts.limit ?? campaign.daily_cap ?? 30
   const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
 
   // Posts déjà traités (tous statuts : draft, skipped, sent…) → anti-doublon.
@@ -219,7 +220,9 @@ export async function postNextDraft(db: Db, campaign: CommentCampaign): Promise<
   }
 
   const sent = await sentTodayCount(db, campaign.id)
-  const remainingCap = Math.max(0, (campaign.daily_cap || 15) - sent)
+  // Fallback 30 (aligné sur la génération) : un daily_cap vide en base ne doit
+  // plus brider silencieusement le posting à 15.
+  const remainingCap = Math.max(0, (campaign.daily_cap || 30) - sent)
 
   // Brouillons en attente.
   const { count: pendingCount } = await db
@@ -229,7 +232,7 @@ export async function postNextDraft(db: Db, campaign: CommentCampaign): Promise<
     .eq('status', 'draft')
 
   if (remainingCap <= 0) {
-    return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: `Plafond atteint (${sent}/${campaign.daily_cap})` }
+    return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: `Plafond atteint (${sent}/${campaign.daily_cap || 30})` }
   }
 
   const { data: draft } = await db

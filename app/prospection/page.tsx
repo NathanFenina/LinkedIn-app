@@ -7,12 +7,11 @@ import { formatDistanceToNow } from '@/lib/utils'
 
 interface TreatRow { contact: Contact; tier: string; score: number }
 interface RelanceRow extends TreatRow { step: { label: string; goal: string } }
-interface Person { provider_id: string | null; name: string | null; headline: string | null; profile_url: string | null; public_identifier: string | null; already_in_crm: boolean }
 
 const TIER_CLS: Record<string, string> = { P1: 'bg-red-100 text-red-700', P2: 'bg-amber-100 text-amber-700', P3: 'bg-gray-100 text-gray-500' }
 
 export default function ProspectionPage() {
-  const [tab, setTab] = useState<'treat' | 'relance' | 'source'>('treat')
+  const [tab, setTab] = useState<'treat' | 'relance'>('treat')
   const [toTreat, setToTreat] = useState<TreatRow[]>([])
   const [relances, setRelances] = useState<RelanceRow[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -23,12 +22,6 @@ export default function ProspectionPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [historyById, setHistoryById] = useState<Record<string, Array<{ text: string; is_sender: boolean }>>>({})
   const [historyLoading, setHistoryLoading] = useState<string | null>(null)
-
-  // sourcing
-  const [searchUrl, setSearchUrl] = useState('')
-  const [people, setPeople] = useState<Person[]>([])
-  const [pDraft, setPDraft] = useState<Record<string, string>>({})
-  const [pDone, setPDone] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -110,52 +103,10 @@ export default function ProspectionPage() {
     setMsg(`Relancé ${c.name} ✅ (relance n°${d.relance_count})`)
   }
 
-  // --- Sourcing outbound ---
-  const source = async () => {
-    if (!searchUrl.includes('linkedin.com')) { setMsg('Colle une URL de recherche LinkedIn.'); return }
-    setLoading(true); setMsg('Recherche des profils…')
-    const res = await fetch('/api/prospection/source', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ search_url: searchUrl.trim() }),
-    })
-    const d = await res.json()
-    setLoading(false)
-    if (d.error) { setMsg(`Erreur: ${d.error}`); return }
-    setPeople(d.people || [])
-    setMsg(`${d.fresh} nouveau(x) sur ${d.total} profils (le reste est déjà dans ton CRM).`)
-  }
-
-  const prepInvite = async (p: Person) => {
-    if (!p.provider_id) return
-    setBusyId(p.provider_id)
-    const res = await fetch('/api/prospection/invite', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preview: true, name: p.name, headline: p.headline }),
-    })
-    const d = await res.json()
-    if (d.preview_message !== undefined) setPDraft((prev) => ({ ...prev, [p.provider_id!]: d.preview_message }))
-    setBusyId(null)
-  }
-
-  const sendInvite = async (p: Person) => {
-    if (!p.provider_id) return
-    if (!confirm(`Inviter ${p.name} ?`)) return
-    setBusyId(p.provider_id); setMsg('Envoi de l\'invitation…')
-    const res = await fetch('/api/prospection/invite', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider_id: p.provider_id, message: (pDraft[p.provider_id] || '').trim() || undefined }),
-    })
-    const d = await res.json()
-    setBusyId(null)
-    if (!res.ok || d.error) { setMsg(`Erreur: ${d.error || res.statusText}${d.limited ? ' (garde-fou)' : ''}`); return }
-    setPDone((prev) => new Set(prev).add(p.provider_id!))
-    setMsg(`Invitation envoyée à ${p.name} ✅`)
-  }
-
   const isError = msg.toLowerCase().startsWith('erreur')
   const TABS = [
     { k: 'treat' as const, label: 'À traiter', icon: Flame, count: toTreat.length },
     { k: 'relance' as const, label: 'Relances dues', icon: Clock, count: relances.length },
-    { k: 'source' as const, label: 'Nouveaux à prospecter', icon: UserPlus2 },
   ]
 
   return (
@@ -223,67 +174,6 @@ export default function ProspectionPage() {
           </div>
         )}
 
-        {/* SOURCING */}
-        {tab === 'source' && (
-          <div className="space-y-3">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Colle une URL de recherche LinkedIn (Sales Nav / recherche de personnes — ex. CMO SaaS France)
-              </label>
-              <div className="flex gap-2">
-                <input value={searchUrl} onChange={(e) => setSearchUrl(e.target.value)}
-                  placeholder="https://www.linkedin.com/search/results/people/?keywords=..."
-                  className="flex-1 border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:border-blue-400 focus:outline-none" />
-                <button onClick={source} disabled={loading}
-                  className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />} Sourcer
-                </button>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-1">Les profils déjà dans ton CRM (déjà échangé) sont marqués — tu ne re-prospectes pas quelqu&apos;un que tu connais.</p>
-            </div>
-            {people.map((p) => {
-              const key = p.provider_id || p.public_identifier || p.name || ''
-              const draft = p.provider_id ? pDraft[p.provider_id] : undefined
-              const done = p.provider_id ? pDone.has(p.provider_id) : false
-              return (
-                <div key={key} className={`bg-white border rounded-xl p-4 shadow-sm ${p.already_in_crm ? 'border-gray-100 opacity-70' : 'border-gray-200'}`}>
-                  <div className="flex items-center gap-2">
-                    <div className="min-w-0">
-                      <div className="font-semibold text-gray-900 text-sm truncate flex items-center gap-2">
-                        {p.name || 'Profil'}
-                        {p.already_in_crm && <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">déjà échangé</span>}
-                      </div>
-                      {p.headline && <div className="text-[12px] text-gray-500 truncate">{p.headline}</div>}
-                    </div>
-                    {p.profile_url && <a href={p.profile_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-600 inline-flex items-center gap-0.5 ml-auto shrink-0 hover:underline">profil <ExternalLink className="w-2.5 h-2.5" /></a>}
-                  </div>
-                  {!p.already_in_crm && !done && (
-                    <>
-                      {draft !== undefined && (
-                        <textarea value={draft} onChange={(e) => setPDraft((prev) => ({ ...prev, [p.provider_id!]: e.target.value }))} rows={3} maxLength={300}
-                          className="mt-2 w-full text-[13px] text-gray-900 border border-gray-200 rounded-lg p-2 focus:border-blue-400 focus:outline-none" />
-                      )}
-                      <div className="flex items-center gap-2 mt-2">
-                        {draft === undefined ? (
-                          <button disabled={busyId === p.provider_id} onClick={() => prepInvite(p)}
-                            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">
-                            {busyId === p.provider_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Préparer le message
-                          </button>
-                        ) : (
-                          <button disabled={busyId === p.provider_id} onClick={() => sendInvite(p)}
-                            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                            <Send className="w-3.5 h-3.5" /> Envoyer l&apos;invitation
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                  {done && <div className="text-xs text-green-600 mt-1 inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> invitation envoyée</div>}
-                </div>
-              )
-            })}
-          </div>
-        )}
       </div>
     </>
   )

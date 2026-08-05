@@ -24,7 +24,7 @@ async function generateJob() {
   let totalGenerated = 0
   for (const campaign of campaigns) {
     try {
-      const r = await generateDrafts(db, campaign, { limit: campaign.daily_cap || 20 })
+      const r = await generateDrafts(db, campaign, { limit: campaign.daily_cap || 30 })
       totalGenerated += r.generated
       results.push({ campaign: campaign.name, generated: r.generated, posts_found: r.posts_found })
     } catch (err) {
