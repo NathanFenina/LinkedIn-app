@@ -116,6 +116,42 @@ export interface LeadMagnetCampaign {
   updated_at: string
 }
 
+// Feature 7 — séquenceur outbound
+export interface OutreachCampaign {
+  id: string
+  name: string
+  linkedin_account_id: string | null
+  search_url: string | null
+  msg1: string
+  followup_days: number
+  msg2: string | null
+  daily_cap: number
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type OutreachTargetStatus =
+  | 'sourced' | 'approved' | 'skipped' | 'msg1_sent' | 'msg2_sent' | 'done' | 'replied' | 'error'
+
+export interface OutreachTarget {
+  id: string
+  campaign_id: string
+  provider_id: string | null
+  name: string | null
+  headline: string | null
+  profile_url: string | null
+  public_identifier: string | null
+  score: number
+  score_reason: string | null
+  status: OutreachTargetStatus
+  chat_id: string | null
+  last_sent_at: string | null
+  next_action_at: string | null
+  error: string | null
+  created_at: string
+}
+
 // Feature 6 — auto-comment
 export interface CommentCampaign {
   id: string

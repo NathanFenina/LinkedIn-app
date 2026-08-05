@@ -1,0 +1,43 @@
+name: Outbound Sequencer Session
+# Session groupée du séquenceur outbound : envoie les DM (message initial +
+# relances dues) un par un, espacés d'un délai aléatoire de 4-6 min — comme
+# une vraie personne. Tourne sur le runner GitHub Actions (jusqu'à 6h/job),
+# donc PAS de serveur à maintenir et PAS de limite 300s Vercel. L'app ne fait
+# que "avance d'un cran" à chaque appel ; c'est cette boucle qui gère
+# l'espacement. Les garde-fous (limits.ts) bloquent si le plafond LinkedIn est
+# atteint, donc c'est sûr même si la boucle tourne longtemps.
+on:
+  schedule:
+    # 08:00 UTC ≈ 10h heure française. Déclenchement approximatif (GitHub peut
+    # décaler de quelques minutes). Décalé des commentaires (06:00) pour étaler
+    # l'activité sur la journée.
+    - cron: '0 8 * * *'
+  workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350    # garde-fou (< 6h)
+    steps:
+      - name: Run outbound session
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in $(seq 1 40); do
+            resp=$(curl -fsSL -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$APP_URL/api/cron/outreach")
+            echo "[$i] $resp"
+
+            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
+
+            # Round sans envoi (rien d'approuvé, aucune relance due, ou plafond
+            # atteint sur toutes les campagnes) → fin de session.
+            if [ "${sent:-0}" = "0" ]; then
+              echo "Session terminée (sent=$sent)."
+              break
+            fi
+
+            # Espacement aléatoire 240-360s (4-6 min) avant le prochain envoi.
+            sleep $(( ( RANDOM % 121 ) + 240 ))
+          done
