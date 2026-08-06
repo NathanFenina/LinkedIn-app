@@ -38,6 +38,7 @@ export default function OutreachPage() {
   const [msg, setMsg] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState('')
+  const [foundersOnly, setFoundersOnly] = useState(false)
 
   // create form
   const [name, setName] = useState('')
@@ -176,7 +177,11 @@ export default function OutreachPage() {
   const current = campaigns.find((c) => c.id === selected)
   const c = counts[selected || ''] || {}
   const f = filter.trim().toLowerCase()
+  // Fondateur / décideur : on se base sur la tagline (headline) car la recherche
+  // LinkedIn par mot-clé laisse passer des non-fondateurs.
+  const FOUNDER_RE = /\b(fondat|co-?fondat|founder|co-?found|ceo|dirigeant|g[ée]rant|pr[ée]sident|owner|co-?owner)\b/i
   function matchFilter(t: TargetWithHistory) {
+    if (foundersOnly && !FOUNDER_RE.test(t.headline || '')) return false
     if (!f) return true
     return `${t.name || ''} ${t.headline || ''}`.toLowerCase().includes(f)
   }
@@ -348,7 +353,11 @@ export default function OutreachPage() {
                     </button>
                   )}
                 </div>
-                {f && <span className="text-xs text-gray-500 shrink-0">{toValidate.length}/{sourcedTotal} à valider</span>}
+                <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 shrink-0 cursor-pointer select-none">
+                  <input type="checkbox" checked={foundersOnly} onChange={(e) => setFoundersOnly(e.target.checked)} />
+                  Fondateurs seulement
+                </label>
+                {(f || foundersOnly) && <span className="text-xs text-gray-500 shrink-0">{toValidate.length}/{sourcedTotal}</span>}
               </div>
 
               {/* À VALIDER — tableau + actions groupées */}
