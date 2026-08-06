@@ -45,14 +45,18 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
       for (const c of data || []) if (c.linkedin_id) byId[c.linkedin_id as string] = toHist(c)
     }
     if (names.length) {
+      // Match par nom insensible à la casse : la recherche LinkedIn renvoie les
+      // noms de famille en MAJUSCULES ("Marc BOIVINEAU") alors que le CRM les
+      // garde en casse normale — un .in() exact ratait donc tout. On charge les
+      // contacts avec qui il y a vraiment eu un message et on compare en JS.
+      const wanted = new Set(names)
       const { data } = await db
         .from('contacts')
         .select('id, linkedin_id, name, last_message, last_message_at, is_sender_last, status')
-        .in('name', list.map((t) => t.name).filter(Boolean) as string[])
-      // On ne garde que les contacts avec qui il y a vraiment eu un message.
+        .not('last_message_at', 'is', null)
       for (const c of data || []) {
         const key = (c.name as string | null)?.trim().toLowerCase()
-        if (key && (c.last_message || c.last_message_at)) byName[key] = toHist(c)
+        if (key && wanted.has(key)) byName[key] = toHist(c)
       }
     }
 

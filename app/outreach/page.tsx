@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import type { OutreachCampaign, OutreachTarget } from '@/types'
 import {
   Plus, Play, Trash2, Power, ExternalLink, Loader2, Search, Save,
-  CheckCircle2, XCircle, MessageSquare, Info, History,
+  CheckCircle2, XCircle, MessageSquare, Info, History, Filter, X,
 } from 'lucide-react'
 import { formatDistanceToNow, errMsg } from '@/lib/utils'
 
@@ -37,6 +37,7 @@ export default function OutreachPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [filter, setFilter] = useState('')
 
   // create form
   const [name, setName] = useState('')
@@ -130,9 +131,12 @@ export default function OutreachPage() {
   }
 
   async function bulkStatus(from: string, to: string) {
-    const rows = targets.filter((t) => t.status === from)
+    // Respecte le filtre courant : "Tout écarter" avec un filtre "seo" n'écarte
+    // que les profils SEO affichés, pas toute la liste.
+    const rows = targets.filter((t) => t.status === from && matchFilter(t))
     if (!rows.length) return
-    if (to === 'skipped' && !confirm(`Écarter ${rows.length} profil(s) ?`)) return
+    const verb = to === 'skipped' ? 'Écarter' : 'Mettre en file'
+    if (!confirm(`${verb} ${rows.length} profil(s)${filter.trim() ? ` (filtre « ${filter.trim()} »)` : ''} ?`)) return
     setBusy('bulk'); setMsg('')
     try {
       await Promise.all(rows.map((t) =>
@@ -171,9 +175,15 @@ export default function OutreachPage() {
 
   const current = campaigns.find((c) => c.id === selected)
   const c = counts[selected || ''] || {}
-  const toValidate = targets.filter((t) => t.status === 'sourced')
-  const approved = targets.filter((t) => t.status === 'approved')
-  const rest = targets.filter((t) => !['sourced', 'approved'].includes(t.status))
+  const f = filter.trim().toLowerCase()
+  function matchFilter(t: TargetWithHistory) {
+    if (!f) return true
+    return `${t.name || ''} ${t.headline || ''}`.toLowerCase().includes(f)
+  }
+  const toValidate = targets.filter((t) => t.status === 'sourced' && matchFilter(t))
+  const approved = targets.filter((t) => t.status === 'approved' && matchFilter(t))
+  const rest = targets.filter((t) => !['sourced', 'approved'].includes(t.status) && matchFilter(t))
+  const sourcedTotal = targets.filter((t) => t.status === 'sourced').length
 
   return (
     <div className="max-w-6xl mx-auto p-6">
@@ -323,6 +333,22 @@ export default function OutreachPage() {
                   L&apos;espacement entre 2 envois (~4-6 min, comme un humain) est géré automatiquement par la session
                   d&apos;envoi + les garde-fous anti-ban. Un profil déjà présent dans une campagne n&apos;est jamais re-sourcé ailleurs.
                 </p>
+              </div>
+
+              {/* Filtre : nom + tagline. Les actions groupées respectent le filtre. */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input value={filter} onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Filtrer par nom ou tagline (ex. « seo », « agence »)…"
+                    className="w-full pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:border-blue-400 focus:outline-none" />
+                  {filter && (
+                    <button onClick={() => setFilter('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                {f && <span className="text-xs text-gray-500 shrink-0">{toValidate.length}/{sourcedTotal} à valider</span>}
               </div>
 
               {/* À VALIDER — tableau + actions groupées */}
