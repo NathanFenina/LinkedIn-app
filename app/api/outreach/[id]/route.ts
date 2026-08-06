@@ -62,7 +62,19 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
 
     const enriched = list.map((t) => {
       const nameKey = (t.name as string | null)?.trim().toLowerCase() || ''
-      const history = (t.provider_id ? byId[t.provider_id as string] : null) || byName[nameKey] || null
+      const crm = (t.provider_id ? byId[t.provider_id as string] : null) || byName[nameKey] || null
+      // Conversation LinkedIn pré-existante détectée au sourcing (chat_id posé
+      // sur un prospect encore 'sourced'/'approved') → "déjà échangé" fiable même
+      // si la personne n'est pas dans le CRM.
+      const preChat = (t.chat_id && (t.status === 'sourced' || t.status === 'approved')) ? (t.chat_id as string) : null
+      const history = (crm || preChat) ? {
+        contact_id: crm?.contact_id || null,
+        chat_id: preChat || null,
+        last_message: crm?.last_message ?? null,
+        last_message_at: crm?.last_message_at ?? null,
+        is_sender_last: crm?.is_sender_last ?? false,
+        status: crm?.status ?? null,
+      } : null
       return { ...t, history }
     })
 

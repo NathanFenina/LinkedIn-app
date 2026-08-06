@@ -9,7 +9,7 @@ import {
 import { formatDistanceToNow, errMsg } from '@/lib/utils'
 
 type TargetWithHistory = OutreachTarget & {
-  history: { contact_id: string; last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string } | null
+  history: { contact_id: string | null; chat_id: string | null; last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string | null } | null
 }
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -425,7 +425,11 @@ function TargetTable({ title, tone, rows, busy, bulk, rowActions, empty }: {
     setOpenId(t.id)
     if (!threads[t.id]) {
       setThreadLoading(t.id)
-      const d = await fetch(`/api/contacts/${t.history.contact_id}/thread`).then((r) => r.json()).catch(() => [])
+      // Priorité au chat_id (conversation LinkedIn directe) ; sinon le fil CRM.
+      const url = t.history.chat_id
+        ? `/api/outreach/thread?chat_id=${encodeURIComponent(t.history.chat_id)}`
+        : `/api/contacts/${t.history.contact_id}/thread`
+      const d = await fetch(url).then((r) => r.json()).catch(() => [])
       setThreads((p) => ({ ...p, [t.id]: Array.isArray(d) ? d : [] }))
       setThreadLoading(null)
     }

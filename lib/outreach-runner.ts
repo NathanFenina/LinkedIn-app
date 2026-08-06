@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages } from '@/lib/unipile'
+import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages, getChats } from '@/lib/unipile'
 import { scoreProfile } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
 import { guard } from '@/lib/limits'
@@ -67,6 +67,22 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
     ;(byProv || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id); if (r.public_identifier) inCampaign.add(r.public_identifier) })
   }
 
+  // Conversations LinkedIn existantes : source de vérité fiable pour "déjà
+  // contacté" (le CRM est incomplet). On balaie les chats récents et on mappe
+  // provider_id → chat_id, pour marquer les prospects qu'on connaît déjà.
+  const chatByProvider = new Map<string, string>()
+  try {
+    let ccur: string | undefined = undefined
+    let cpages = 0
+    while (cpages < 8) {
+      const { items: chats, cursor: cnext } = await getChats(accountId, 100, ccur)
+      cpages++
+      for (const ch of chats) if (ch.attendee_provider_id) chatByProvider.set(ch.attendee_provider_id, ch.id)
+      if (!cnext || !chats.length) break
+      ccur = cnext
+    }
+  } catch { /* si l'API chats échoue, on continue sans le marquage */ }
+
   let added = 0, skipped_dup = 0, skipped_noid = 0, errors = 0
   let error_sample: string | undefined
 
@@ -88,6 +104,9 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
   }))
 
   for (const { p, score, reason } of scored) {
+    // Conversation LinkedIn déjà ouverte avec ce profil ? On pré-remplit chat_id
+    // → le prospect s'affichera "déjà échangé" et on réutilisera ce fil.
+    const existingChat = p.provider_id ? chatByProvider.get(p.provider_id) || null : null
     const { error } = await db.from('outreach_targets').insert({
       campaign_id: campaign.id,
       provider_id: p.provider_id || null,
@@ -98,6 +117,7 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
       score,
       score_reason: reason,
       status: 'sourced',
+      chat_id: existingChat,
     })
     if (!error) added++
     else { errors++; if (!error_sample) error_sample = error.message }
@@ -185,11 +205,18 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
   try {
     const text = personalize(campaign.msg1, appr.name)
-    const res = (await startNewChat(accountId, appr.provider_id!, text)) as { id?: string }
+    // Conversation déjà ouverte (détectée au sourcing) → on continue le fil au
+    // lieu d'en créer un doublon.
+    let chatId = appr.chat_id as string | null
+    if (chatId) await sendMessage(chatId, text)
+    else {
+      const res = (await startNewChat(accountId, appr.provider_id!, text)) as { id?: string }
+      chatId = res?.id || null
+    }
     const nextAt = new Date(Date.now() + (campaign.followup_days || 3) * 86400000).toISOString()
     await db.from('outreach_targets').update({
       status: campaign.msg2 ? 'msg1_sent' : 'done',
-      chat_id: res?.id || null,
+      chat_id: chatId,
       last_sent_at: new Date().toISOString(),
       next_action_at: campaign.msg2 ? nextAt : null,
     }).eq('id', appr.id)
