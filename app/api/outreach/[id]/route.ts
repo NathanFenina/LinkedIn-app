@@ -17,31 +17,50 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
       .order('score', { ascending: false })
       .order('created_at', { ascending: false })
 
-    // Historique : est-ce qu'on a déjà échangé avec ce profil ? (match provider_id
-    // ↔ contacts.linkedin_id). On attache un aperçu du dernier message pour que
-    // Nathan décide de garder ou écarter avant de lancer la séquence.
+    // Historique : est-ce qu'on a déjà échangé avec ce profil ? On rapproche du
+    // CRM par identifiant LinkedIn (provider_id ↔ contacts.linkedin_id) ET par
+    // nom — car la recherche LinkedIn ne renvoie pas toujours le même id que
+    // celui stocké dans les contacts, ce qui laissait passer des "déjà échangé"
+    // pour des "jamais contacté". Le nom sert de filet de sécurité pour l'affichage.
+    type Hist = { contact_id: string; last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string }
     const list = (targets || []) as Array<Record<string, unknown>>
     const providerIds = list.map((t) => t.provider_id).filter(Boolean) as string[]
-    const historyBy: Record<string, { contact_id: string; last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string }> = {}
+    const names = list.map((t) => (t.name as string | null)?.trim().toLowerCase()).filter(Boolean) as string[]
+
+    const byId: Record<string, Hist> = {}
+    const byName: Record<string, Hist> = {}
+    const toHist = (c: Record<string, unknown>): Hist => ({
+      contact_id: c.id as string,
+      last_message: (c.last_message as string) ?? null,
+      last_message_at: (c.last_message_at as string) ?? null,
+      is_sender_last: !!c.is_sender_last,
+      status: c.status as string,
+    })
+
     if (providerIds.length) {
-      const { data: contacts } = await db
+      const { data } = await db
         .from('contacts')
-        .select('id, linkedin_id, last_message, last_message_at, is_sender_last, status')
+        .select('id, linkedin_id, name, last_message, last_message_at, is_sender_last, status')
         .in('linkedin_id', providerIds)
-      for (const c of contacts || []) {
-        if (c.linkedin_id) historyBy[c.linkedin_id] = {
-          contact_id: c.id,
-          last_message: c.last_message ?? null,
-          last_message_at: c.last_message_at ?? null,
-          is_sender_last: !!c.is_sender_last,
-          status: c.status,
-        }
+      for (const c of data || []) if (c.linkedin_id) byId[c.linkedin_id as string] = toHist(c)
+    }
+    if (names.length) {
+      const { data } = await db
+        .from('contacts')
+        .select('id, linkedin_id, name, last_message, last_message_at, is_sender_last, status')
+        .in('name', list.map((t) => t.name).filter(Boolean) as string[])
+      // On ne garde que les contacts avec qui il y a vraiment eu un message.
+      for (const c of data || []) {
+        const key = (c.name as string | null)?.trim().toLowerCase()
+        if (key && (c.last_message || c.last_message_at)) byName[key] = toHist(c)
       }
     }
-    const enriched = list.map((t) => ({
-      ...t,
-      history: t.provider_id ? historyBy[t.provider_id as string] || null : null,
-    }))
+
+    const enriched = list.map((t) => {
+      const nameKey = (t.name as string | null)?.trim().toLowerCase() || ''
+      const history = (t.provider_id ? byId[t.provider_id as string] : null) || byName[nameKey] || null
+      return { ...t, history }
+    })
 
     return Response.json({ campaign, targets: enriched })
   } catch (err) {

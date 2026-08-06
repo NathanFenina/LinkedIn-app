@@ -159,7 +159,9 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
         const text = personalize(campaign.msg2, due.name)
         if (due.chat_id) await sendMessage(due.chat_id, text)
         else await startNewChat(accountId, due.provider_id!, text)
-        await db.from('outreach_targets').update({ status: 'done', last_sent_at: new Date().toISOString() }).eq('id', due.id)
+        // 'msg2_sent' = relance envoyée, séquence terminée (statut distinct de
+        // 'done' pour que tu voies dans le Suivi qui a reçu 1 vs 2 messages).
+        await db.from('outreach_targets').update({ status: 'msg2_sent', last_sent_at: new Date().toISOString() }).eq('id', due.id)
         return { sent: 1, step: 'msg2', target: due.name }
       } catch (err) {
         await db.from('outreach_targets').update({ status: 'error', error: String(err).slice(0, 300) }).eq('id', due.id)
