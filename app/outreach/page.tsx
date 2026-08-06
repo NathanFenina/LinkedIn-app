@@ -1,15 +1,15 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import type { OutreachCampaign, OutreachTarget } from '@/types'
 import {
   Plus, Play, Trash2, Power, ExternalLink, Loader2, Search, Save,
-  CheckCircle2, XCircle, MessageSquare, Info,
+  CheckCircle2, XCircle, MessageSquare, Info, History,
 } from 'lucide-react'
 import { formatDistanceToNow, errMsg } from '@/lib/utils'
 
 type TargetWithHistory = OutreachTarget & {
-  history: { last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string } | null
+  history: { contact_id: string; last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string } | null
 }
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -389,6 +389,23 @@ function TargetTable({ title, tone, rows, busy, bulk, rowActions, empty }: {
   empty: string
 }) {
   const dot = tone === 'amber' ? 'bg-amber-400' : tone === 'blue' ? 'bg-blue-500' : 'bg-slate-400'
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [threads, setThreads] = useState<Record<string, Array<{ text: string; is_sender: boolean }>>>({})
+  const [threadLoading, setThreadLoading] = useState<string | null>(null)
+
+  async function toggleHistory(t: TargetWithHistory) {
+    if (!t.history) return
+    if (openId === t.id) { setOpenId(null); return }
+    setOpenId(t.id)
+    if (!threads[t.id]) {
+      setThreadLoading(t.id)
+      const d = await fetch(`/api/contacts/${t.history.contact_id}/thread`).then((r) => r.json()).catch(() => [])
+      setThreads((p) => ({ ...p, [t.id]: Array.isArray(d) ? d : [] }))
+      setThreadLoading(null)
+    }
+  }
+
+  const cols = rowActions ? 6 : 5
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
       <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
@@ -418,7 +435,8 @@ function TargetTable({ title, tone, rows, busy, bulk, rowActions, empty }: {
               {rows.map((t) => {
                 const m = STATUS_META[t.status] || { label: t.status, cls: 'bg-gray-100 text-gray-500' }
                 return (
-                  <tr key={t.id} className="border-b border-gray-50 last:border-0 align-top hover:bg-gray-50/50">
+                <React.Fragment key={t.id}>
+                  <tr className="border-b border-gray-50 last:border-0 align-top hover:bg-gray-50/50">
                     <td className="px-3 py-2">
                       <span title={t.score_reason || ''} className={`inline-flex w-7 h-7 rounded-full items-center justify-center text-xs font-bold ${scoreCls(t.score)}`}>{t.score}</span>
                     </td>
@@ -431,10 +449,10 @@ function TargetTable({ title, tone, rows, busy, bulk, rowActions, empty }: {
                     <td className="px-3 py-2 text-xs text-gray-500 max-w-[220px]"><span className="line-clamp-2">{t.headline || '—'}</span></td>
                     <td className="px-3 py-2 text-xs">
                       {t.history ? (
-                        <span className="text-amber-700 flex items-center gap-1">
-                          <MessageSquare className="w-3 h-3 shrink-0" />
+                        <button onClick={() => toggleHistory(t)} className="text-amber-700 flex items-center gap-1 hover:underline">
+                          <History className="w-3 h-3 shrink-0" />
                           déjà échangé{t.history.last_message_at ? ` · ${formatDistanceToNow(t.history.last_message_at)}` : ''}
-                        </span>
+                        </button>
                       ) : <span className="text-gray-300">jamais contacté</span>}
                     </td>
                     <td className="px-3 py-2"><span className={`text-[10px] px-1.5 py-0.5 rounded ${m.cls}`}>{m.label}</span></td>
@@ -446,6 +464,24 @@ function TargetTable({ title, tone, rows, busy, bulk, rowActions, empty }: {
                       </td>
                     )}
                   </tr>
+                  {openId === t.id && (
+                    <tr className="bg-amber-50/40">
+                      <td colSpan={cols} className="px-4 py-3">
+                        {threadLoading === t.id ? (
+                          <span className="text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> chargement de l&apos;historique…</span>
+                        ) : (threads[t.id]?.length ? (
+                          <div className="space-y-1.5 max-w-2xl">
+                            {threads[t.id].map((mm, i) => (
+                              <div key={i} className={`text-xs px-2.5 py-1.5 rounded-lg ${mm.is_sender ? 'bg-blue-100 text-blue-900 ml-auto max-w-[80%]' : 'bg-white border border-gray-200 text-gray-700 max-w-[80%]'}`}>
+                                {mm.text}
+                              </div>
+                            ))}
+                          </div>
+                        ) : <span className="text-xs text-gray-400">Aucun message trouvé dans l&apos;historique.</span>)}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
                 )
               })}
             </tbody>

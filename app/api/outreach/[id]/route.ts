@@ -22,14 +22,15 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     // Nathan décide de garder ou écarter avant de lancer la séquence.
     const list = (targets || []) as Array<Record<string, unknown>>
     const providerIds = list.map((t) => t.provider_id).filter(Boolean) as string[]
-    const historyBy: Record<string, { last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string }> = {}
+    const historyBy: Record<string, { contact_id: string; last_message: string | null; last_message_at: string | null; is_sender_last: boolean; status: string }> = {}
     if (providerIds.length) {
       const { data: contacts } = await db
         .from('contacts')
-        .select('linkedin_id, last_message, last_message_at, is_sender_last, status')
+        .select('id, linkedin_id, last_message, last_message_at, is_sender_last, status')
         .in('linkedin_id', providerIds)
       for (const c of contacts || []) {
         if (c.linkedin_id) historyBy[c.linkedin_id] = {
+          contact_id: c.id,
           last_message: c.last_message ?? null,
           last_message_at: c.last_message_at ?? null,
           is_sender_last: !!c.is_sender_last,

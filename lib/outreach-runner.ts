@@ -39,7 +39,21 @@ export interface SourceResult {
 export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promise<SourceResult> {
   if (!campaign.search_url) throw new Error('Cette campagne n’a pas d’URL de recherche.')
   const accountId = await accountFor(db, campaign.linkedin_account_id)
-  const { items } = await searchPeopleBySearchUrl(accountId, campaign.search_url)
+
+  // LinkedIn ne renvoie qu'une page (~10 profils) par requête → on pagine via le
+  // cursor pour ramener toute la recherche (plafonné à 120 pour éviter les
+  // timeouts / trop d'appels IA d'un coup ; re-cliquer "Sourcer" ira plus loin).
+  const items: Awaited<ReturnType<typeof searchPeopleBySearchUrl>>['items'] = []
+  let cursor: string | undefined = undefined
+  let pages = 0
+  while (items.length < 120 && pages < 15) {
+    const res: Awaited<ReturnType<typeof searchPeopleBySearchUrl>> =
+      await searchPeopleBySearchUrl(accountId, campaign.search_url, cursor)
+    pages++
+    items.push(...res.items)
+    if (!res.cursor || !res.items.length) break
+    cursor = res.cursor
+  }
   const total = items.length
 
   // Clé d'identité : provider_id (ACoAA…) sinon public_identifier — pour dédup
