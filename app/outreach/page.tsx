@@ -117,7 +117,8 @@ export default function OutreachPage() {
         if (data.skipped_dup) parts.push(`${data.skipped_dup} déjà dans une campagne`)
         if (data.skipped_noid) parts.push(`${data.skipped_noid} sans identifiant`)
         if (data.errors) parts.push(`${data.errors} en erreur${data.error_sample ? ` (${data.error_sample})` : ''}`)
-        setMsg(`${parts.join(' · ')} — sur ${data.total} trouvés`)
+        const more = data.has_more ? ' · ⚠️ il reste des profils — reclique « Sourcer » pour la suite' : ' · liste complète ✓'
+        setMsg(`${parts.join(' · ')} — sur ${data.total} trouvés${more}`)
       }
       await loadTargets(id); await fetchCampaigns()
     } catch (err) { setMsg('Erreur sourcing : ' + errMsg(err)) } finally { setBusy(null) }

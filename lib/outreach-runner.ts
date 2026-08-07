@@ -70,6 +70,7 @@ export interface SourceResult {
   skipped_noid: number
   errors: number
   error_sample?: string
+  has_more: boolean // true = LinkedIn a renvoyé plus que ce qu'on a ramené (plafond atteint)
 }
 
 // ÉTAPE 1 — Source les profils d'une URL, les score (IA vs ICP), et les insère
@@ -81,17 +82,21 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
   const accountId = await accountFor(db, campaign.linkedin_account_id)
 
   // LinkedIn ne renvoie qu'une page (~10 profils) par requête → on pagine via le
-  // cursor pour ramener toute la recherche (plafonné à 120 pour éviter les
-  // timeouts / trop d'appels IA d'un coup ; re-cliquer "Sourcer" ira plus loin).
+  // cursor pour ramener toute la recherche. On va jusqu'à ~400 profils (40 pages)
+  // pour couvrir toute une recherche de niche en 1re connexion, tout en restant
+  // raisonnable (anti-ban : c'est Unipile qui cadence les appels LinkedIn).
+  const MAX_ITEMS = 400
+  const MAX_PAGES = 40
   const items: Awaited<ReturnType<typeof searchPeopleBySearchUrl>>['items'] = []
   let cursor: string | undefined = undefined
   let pages = 0
-  while (items.length < 120 && pages < 15) {
+  let exhausted = false
+  while (items.length < MAX_ITEMS && pages < MAX_PAGES) {
     const res: Awaited<ReturnType<typeof searchPeopleBySearchUrl>> =
       await searchPeopleBySearchUrl(accountId, campaign.search_url, cursor)
     pages++
     items.push(...res.items)
-    if (!res.cursor || !res.items.length) break
+    if (!res.cursor || !res.items.length) { exhausted = true; break }
     cursor = res.cursor
   }
   const total = items.length
@@ -125,14 +130,21 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
     return true
   })
 
-  const scored = await Promise.all(fresh.map(async (p) => {
-    try {
-      const s = await scoreProfile({ name: p.name || '', jobTitle: p.headline || null, myBusinessContext: DEFAULT_CONTEXT })
-      return { p, score: s.score, reason: s.reason }
-    } catch {
-      return { p, score: 5, reason: '' }
-    }
-  }))
+  // Scoring par lots de 20 pour ne pas saturer l'API Gemini quand la liste est
+  // grande (jusqu'à 400 profils).
+  const scored: Array<{ p: (typeof fresh)[number]; score: number; reason: string }> = []
+  for (let i = 0; i < fresh.length; i += 20) {
+    const chunk = fresh.slice(i, i + 20)
+    const part = await Promise.all(chunk.map(async (p) => {
+      try {
+        const s = await scoreProfile({ name: p.name || '', jobTitle: p.headline || null, myBusinessContext: DEFAULT_CONTEXT })
+        return { p, score: s.score, reason: s.reason }
+      } catch {
+        return { p, score: 5, reason: '' }
+      }
+    }))
+    scored.push(...part)
+  }
 
   for (const { p, score, reason } of scored) {
     // Conversation LinkedIn déjà ouverte avec ce profil ? On pré-remplit chat_id
@@ -154,7 +166,7 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
     else { errors++; if (!error_sample) error_sample = error.message }
   }
 
-  return { added, total, skipped_dup, skipped_noid, errors, error_sample }
+  return { added, total, skipped_dup, skipped_noid, errors, error_sample, has_more: !exhausted }
 }
 
 // Combien envoyés aujourd'hui sur cette campagne (plafond quotidien campagne).
