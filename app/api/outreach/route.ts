@@ -56,6 +56,8 @@ export async function POST(request: Request) {
         msg2: String(body.msg2 || '').trim() || null,
         followup_days: Math.max(1, Number(body.followup_days) || 3),
         daily_cap: Math.max(1, Number(body.daily_cap) || 15),
+        active_hour_start: body.active_hour_start == null ? 9 : Number(body.active_hour_start),
+        active_hour_end: body.active_hour_end == null ? 18 : Number(body.active_hour_end),
         active: body.active !== false,
         linkedin_account_id: accountRowId,
       })

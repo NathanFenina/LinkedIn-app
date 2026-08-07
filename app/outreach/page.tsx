@@ -54,6 +54,8 @@ export default function OutreachPage() {
   const [sMsg2, setSMsg2] = useState('')
   const [sFollow, setSFollow] = useState('3')
   const [sCap, setSCap] = useState('15')
+  const [sHourStart, setSHourStart] = useState('9')
+  const [sHourEnd, setSHourEnd] = useState('18')
   const [dirty, setDirty] = useState(false)
 
   const fetchCampaigns = useCallback(async () => {
@@ -70,6 +72,8 @@ export default function OutreachPage() {
       setSMsg2(data.campaign.msg2 || '')
       setSFollow(String(data.campaign.followup_days ?? 3))
       setSCap(String(data.campaign.daily_cap ?? 15))
+      setSHourStart(String(data.campaign.active_hour_start ?? 9))
+      setSHourEnd(String(data.campaign.active_hour_end ?? 18))
       setDirty(false)
     }
   }, [])
@@ -97,7 +101,7 @@ export default function OutreachPage() {
     try {
       const res = await fetch(`/api/outreach/${selected}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: sName, msg1: sMsg1, msg2: sMsg2 || null, followup_days: Number(sFollow), daily_cap: Number(sCap) }),
+        body: JSON.stringify({ name: sName, msg1: sMsg1, msg2: sMsg2 || null, followup_days: Number(sFollow), daily_cap: Number(sCap), active_hour_start: Number(sHourStart), active_hour_end: Number(sHourEnd) }),
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Erreur')
       setDirty(false); setMsg('✓ Réglages enregistrés'); await fetchCampaigns()
@@ -350,6 +354,15 @@ export default function OutreachPage() {
                   <div>
                     <label className="text-xs font-medium text-gray-600">Max envois / jour</label>
                     <input type="number" min={1} value={sCap} onChange={(e) => { setSCap(e.target.value); setDirty(true) }} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Plage horaire d&apos;envoi (heure de Paris) — jamais de DM en dehors</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input type="number" min={0} max={23} value={sHourStart} onChange={(e) => { setSHourStart(e.target.value); setDirty(true) }} className="w-20 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
+                    <span className="text-sm text-gray-400">h  →</span>
+                    <input type="number" min={0} max={23} value={sHourEnd} onChange={(e) => { setSHourEnd(e.target.value); setDirty(true) }} className="w-20 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
+                    <span className="text-sm text-gray-400">h  (ex. 9 → 18)</span>
                   </div>
                 </div>
                 <p className="text-[11px] text-gray-400 flex items-start gap-1.5">

@@ -24,13 +24,13 @@ function personalize(tpl: string, name: string | null): string {
 }
 
 // Balaye les conversations LinkedIn et renvoie provider_id → chat_id. Source de
-// vérité fiable pour "déjà contacté" (le CRM est incomplet). On va profond
-// (jusqu'à ~2500 chats) pour couvrir aussi les échanges anciens.
-async function sweepChats(accountId: string): Promise<Map<string, string>> {
+// vérité fiable pour "déjà contacté" (le CRM est incomplet). `maxPages` borne la
+// profondeur : peu au sourcing (rapide), beaucoup au "Re-scan historique".
+async function sweepChats(accountId: string, maxPages = 25): Promise<Map<string, string>> {
   const map = new Map<string, string>()
   let cur: string | undefined = undefined
   let pages = 0
-  while (pages < 25) {
+  while (pages < maxPages) {
     const { items: chats, cursor: next } = await getChats(accountId, 100, cur)
     pages++
     for (const ch of chats) if (ch.attendee_provider_id) map.set(ch.attendee_provider_id, ch.id)
@@ -81,14 +81,15 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
   if (!campaign.search_url) throw new Error('Cette campagne n’a pas d’URL de recherche.')
   const accountId = await accountFor(db, campaign.linkedin_account_id)
 
-  // LinkedIn ne renvoie qu'une page (~10 profils) par requête → on pagine via le
-  // cursor pour ramener toute la recherche. On va jusqu'à ~400 profils (40 pages)
-  // pour couvrir toute une recherche de niche en 1re connexion, tout en restant
-  // raisonnable (anti-ban : c'est Unipile qui cadence les appels LinkedIn).
-  const MAX_ITEMS = 400
-  const MAX_PAGES = 40
+  // LinkedIn ne renvoie qu'une page (~10 profils) par requête. On ramène ~120
+  // profils par clic (assez petit pour tenir dans le timeout serverless), en
+  // REPRENANT là où le dernier "Sourcer" s'était arrêté (cursor mémorisé sur la
+  // campagne) → recliquer "Sourcer" continue la liste sans doublon, au lieu de
+  // reprendre du début. Quand la recherche est épuisée, on efface le cursor.
+  const MAX_ITEMS = 120
+  const MAX_PAGES = 15
   const items: Awaited<ReturnType<typeof searchPeopleBySearchUrl>>['items'] = []
-  let cursor: string | undefined = undefined
+  let cursor: string | undefined = (campaign.source_cursor as string | null) || undefined
   let pages = 0
   let exhausted = false
   while (items.length < MAX_ITEMS && pages < MAX_PAGES) {
@@ -96,9 +97,11 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
       await searchPeopleBySearchUrl(accountId, campaign.search_url, cursor)
     pages++
     items.push(...res.items)
-    if (!res.cursor || !res.items.length) { exhausted = true; break }
     cursor = res.cursor
+    if (!res.cursor || !res.items.length) { exhausted = true; break }
   }
+  // Mémorise la position pour le prochain clic (ou efface si on a tout ramené).
+  await db.from('outreach_campaigns').update({ source_cursor: exhausted ? null : cursor || null }).eq('id', campaign.id)
   const total = items.length
 
   // Clé d'identité : provider_id (ACoAA…) sinon public_identifier — pour dédup
@@ -114,9 +117,11 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
 
   // Conversations LinkedIn existantes → provider_id : chat_id, pour marquer les
   // prospects "déjà échangé" (source de vérité plus fiable que le CRM).
+  // Balayage léger au sourcing (5 pages ≈ 500 chats récents) pour rester rapide.
+  // Le bouton "Re-scan historique" fait un balayage profond ensuite.
   let chatByProvider = new Map<string, string>()
   try {
-    chatByProvider = await sweepChats(accountId)
+    chatByProvider = await sweepChats(accountId, 5)
   } catch { /* si l'API chats échoue, on continue sans le marquage */ }
 
   let added = 0, skipped_dup = 0, skipped_noid = 0, errors = 0
@@ -186,6 +191,15 @@ export interface AdvanceResult { sent: number; step?: string; target?: string; s
 //   approved -> envoie msg1 -> msg1_sent (next_action_at = +followup_days)
 //   msg1_sent & due & msg2 -> si répondu : replied ; sinon envoie msg2 -> done
 export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promise<AdvanceResult> {
+  // Plage horaire (heure de Paris, DST géré par Intl) : on n'envoie jamais en
+  // dehors — pas de DM à minuit. Fenêtre vide = pas de restriction.
+  if (campaign.active_hour_start != null && campaign.active_hour_end != null) {
+    const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false }).format(new Date())) % 24
+    const s = campaign.active_hour_start, e = campaign.active_hour_end
+    const inWindow = s <= e ? (h >= s && h < e) : (h >= s || h < e)
+    if (!inWindow) return { sent: 0, skipped_reason: `Hors plage horaire (${s}h-${e}h, il est ${h}h à Paris)` }
+  }
+
   const sentToday = await sentTodayCount(db, campaign.id)
   if (sentToday >= (campaign.daily_cap || 15)) {
     return { sent: 0, skipped_reason: `Plafond campagne atteint (${sentToday}/${campaign.daily_cap})` }

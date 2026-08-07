@@ -126,6 +126,9 @@ export interface OutreachCampaign {
   followup_days: number
   msg2: string | null
   daily_cap: number
+  active_hour_start: number | null
+  active_hour_end: number | null
+  source_cursor: string | null
   active: boolean
   created_at: string
   updated_at: string

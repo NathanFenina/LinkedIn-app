@@ -1,7 +1,7 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { errMsg } from '@/lib/utils'
 
-const EDITABLE = new Set(['name', 'search_url', 'msg1', 'msg2', 'followup_days', 'daily_cap', 'active'])
+const EDITABLE = new Set(['name', 'search_url', 'msg1', 'msg2', 'followup_days', 'daily_cap', 'active_hour_start', 'active_hour_end', 'active'])
 
 // Détail campagne + toutes ses cibles (triées : à valider d'abord, meilleur score en haut).
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
