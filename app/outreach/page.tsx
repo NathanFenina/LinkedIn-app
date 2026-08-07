@@ -148,6 +148,19 @@ export default function OutreachPage() {
     } finally { setBusy(null) }
   }
 
+  async function rescanHistory(id: string) {
+    setBusy('rescan'); setMsg('')
+    try {
+      const res = await fetch(`/api/outreach/${id}/rescan-history`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur')
+      setMsg(`✓ Historique re-scanné : ${data.updated} « déjà échangé » retrouvés sur ${data.scanned} à traiter`)
+      await loadTargets(id)
+    } catch (err) {
+      setMsg('Erreur : ' + errMsg(err))
+    } finally { setBusy(null) }
+  }
+
   async function runStep(id: string) {
     setBusy('run'); setMsg('')
     try {
@@ -291,6 +304,11 @@ export default function OutreachPage() {
                 <button onClick={() => source(current.id)} disabled={busy === 'source'}
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                   {busy === 'source' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Sourcer
+                </button>
+                <button onClick={() => rescanHistory(current.id)} disabled={busy === 'rescan'}
+                  title="Re-scanne tes conversations LinkedIn pour rattraper les « déjà échangé » anciens"
+                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                  {busy === 'rescan' ? <Loader2 className="w-4 h-4 animate-spin" /> : <History className="w-4 h-4" />} Re-scan historique
                 </button>
                 <button onClick={() => runStep(current.id)} disabled={busy === 'run'} title="Envoie 1 message maintenant (test). En prod, la session GitHub envoie tout seul, espacé."
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">

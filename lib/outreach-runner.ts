@@ -23,6 +23,46 @@ function personalize(tpl: string, name: string | null): string {
   return (tpl || '').replace(/\{prenom\}/gi, first).replace(/\{nom\}/gi, name || '')
 }
 
+// Balaye les conversations LinkedIn et renvoie provider_id → chat_id. Source de
+// vérité fiable pour "déjà contacté" (le CRM est incomplet). On va profond
+// (jusqu'à ~2500 chats) pour couvrir aussi les échanges anciens.
+async function sweepChats(accountId: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  let cur: string | undefined = undefined
+  let pages = 0
+  while (pages < 25) {
+    const { items: chats, cursor: next } = await getChats(accountId, 100, cur)
+    pages++
+    for (const ch of chats) if (ch.attendee_provider_id) map.set(ch.attendee_provider_id, ch.id)
+    if (!next || !chats.length) break
+    cur = next
+  }
+  return map
+}
+
+// Re-scanne l'historique et met à jour chat_id sur les cibles encore à traiter
+// (sourced/approved) — pour rattraper les "déjà échangé" ratés au sourcing,
+// sans avoir à re-sourcer toute la campagne.
+export async function rescanHistory(db: Db, campaign: OutreachCampaign): Promise<{ updated: number; scanned: number }> {
+  const accountId = await accountFor(db, campaign.linkedin_account_id)
+  const chatByProvider = await sweepChats(accountId)
+  const { data: targets } = await db
+    .from('outreach_targets')
+    .select('id, provider_id, chat_id, status')
+    .eq('campaign_id', campaign.id)
+    .in('status', ['sourced', 'approved'])
+  let updated = 0
+  for (const t of targets || []) {
+    if (t.chat_id || !t.provider_id) continue
+    const chat = chatByProvider.get(t.provider_id)
+    if (chat) {
+      const { error } = await db.from('outreach_targets').update({ chat_id: chat }).eq('id', t.id)
+      if (!error) updated++
+    }
+  }
+  return { updated, scanned: (targets || []).length }
+}
+
 export interface SourceResult {
   added: number
   total: number
@@ -67,20 +107,11 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
     ;(byProv || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id); if (r.public_identifier) inCampaign.add(r.public_identifier) })
   }
 
-  // Conversations LinkedIn existantes : source de vérité fiable pour "déjà
-  // contacté" (le CRM est incomplet). On balaie les chats récents et on mappe
-  // provider_id → chat_id, pour marquer les prospects qu'on connaît déjà.
-  const chatByProvider = new Map<string, string>()
+  // Conversations LinkedIn existantes → provider_id : chat_id, pour marquer les
+  // prospects "déjà échangé" (source de vérité plus fiable que le CRM).
+  let chatByProvider = new Map<string, string>()
   try {
-    let ccur: string | undefined = undefined
-    let cpages = 0
-    while (cpages < 8) {
-      const { items: chats, cursor: cnext } = await getChats(accountId, 100, ccur)
-      cpages++
-      for (const ch of chats) if (ch.attendee_provider_id) chatByProvider.set(ch.attendee_provider_id, ch.id)
-      if (!cnext || !chats.length) break
-      ccur = cnext
-    }
+    chatByProvider = await sweepChats(accountId)
   } catch { /* si l'API chats échoue, on continue sans le marquage */ }
 
   let added = 0, skipped_dup = 0, skipped_noid = 0, errors = 0
