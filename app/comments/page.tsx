@@ -15,6 +15,7 @@ export default function CommentsPage() {
   const [campaigns, setCampaigns] = useState<CommentCampaign[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
+  const [pubStatus, setPubStatus] = useState<{ status?: string; conclusion?: string; started_at?: string; html_url?: string; available?: boolean; none?: boolean } | null>(null)
   const [draftsByCampaign, setDraftsByCampaign] = useState<Record<string, CommentSend[]>>({})
   const [sentByCampaign, setSentByCampaign] = useState<Record<string, CommentSend[]>>({})
   const [showForm, setShowForm] = useState(false)
@@ -55,11 +56,18 @@ export default function CommentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaigns.length])
 
+  const loadPubStatus = useCallback(async () => {
+    const d = await fetch('/api/comment-campaigns/publish-status').then((r) => r.json()).catch(() => null)
+    setPubStatus(d)
+  }, [])
+
   // Auto-refresh: la session GitHub poste en arrière-plan → on rafraîchit le
-  // suivi (brouillons + postés) toutes les 20s tant que la page est ouverte.
+  // suivi (brouillons + postés) ET l'état de la session toutes les 20s.
   useEffect(() => {
+    loadPubStatus()
     const t = setInterval(() => {
       campaigns.forEach((c) => loadDrafts(c.id))
+      loadPubStatus()
     }, 20000)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -281,6 +289,25 @@ export default function CommentsPage() {
             <span className="flex-1 leading-relaxed">{msg}</span>
             <button onClick={() => setMsg('')} className="opacity-50 hover:opacity-100 shrink-0"><X className="w-3.5 h-3.5" /></button>
           </div>
+        )}
+
+        {pubStatus?.available && pubStatus.status && !pubStatus.none && (
+          <a href={pubStatus.html_url || '#'} target="_blank" rel="noopener noreferrer"
+            className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 border ${
+              pubStatus.status === 'in_progress' || pubStatus.status === 'queued'
+                ? 'bg-green-50 border-green-200 text-green-800'
+                : pubStatus.conclusion === 'success'
+                  ? 'bg-gray-50 border-gray-200 text-gray-600'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+            }`}>
+            {pubStatus.status === 'in_progress' || pubStatus.status === 'queued' ? (
+              <><Loader2 className="w-4 h-4 shrink-0 animate-spin" /> <span className="flex-1">Session de publication <strong>en cours</strong> — les commentaires partent un par un, espacés. Le compteur « Postés aujourd&apos;hui » monte tout seul.</span></>
+            ) : pubStatus.conclusion === 'success' ? (
+              <><CheckCircle2 className="w-4 h-4 shrink-0" /> <span className="flex-1">Dernière session <strong>terminée</strong>. Relance « Publier tout » s&apos;il reste des brouillons.</span></>
+            ) : (
+              <><AlertCircle className="w-4 h-4 shrink-0" /> <span className="flex-1">Dernière session en échec — clique pour voir le log GitHub.</span></>
+            )}
+          </a>
         )}
 
         {showForm && (
