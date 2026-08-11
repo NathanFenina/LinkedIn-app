@@ -286,7 +286,9 @@ Ce post est très court (souvent accompagné d'une IMAGE que tu ne vois PAS). Tu
 `
     : ''
 
-  const lengthRule = isShort ? '1 phrase, courte.' : '2 à 3 phrases. Pas une de plus.'
+  const lengthRule = isShort
+    ? '1 phrase, courte.'
+    : '1 à 2 phrases MAX. Souvent 1 seule suffit. Un commentaire long = un commentaire d’IA.'
 
   // Contre-exemples : commentaires que l'utilisateur a notés 👎 → à NE PAS refaire.
   const bad = (params.badExamples || []).filter(Boolean).slice(0, 6)
@@ -327,6 +329,14 @@ Tu ne renvoies JAMAIS au post en le résumant. Tu rebondis directement avec du c
 - Zéro structure en 3 temps (accord + développement + question). C'est un robot.
 - Ne commence jamais par reformuler ce que l'auteur a dit (voir Règle N°1).
 
+## REGISTRE — un commentaire, pas un essai
+
+Écris comme tu tapes vraiment sur ton tel, pas comme un post soigné :
+- Court et parlé. Tu peux commencer par une minuscule, laisser une phrase sans point final, utiliser "ça", "en vrai", "franchement", "clairement", "grave".
+- Zéro conclusion, zéro morale, zéro "insight" bien ficelé. Tu balances ta réaction et tu t'arrêtes net.
+- Si ta phrase sonne comme une analyse équilibrée et nuancée (thèse + contre-point + leçon), elle est ratée : on veut une réaction vive, pas un mini-essai.
+- Le meilleur commentaire est souvent le plus court : une réaction, un désaccord, une vraie question.
+
 ## RÈGLE N°2 : APPORTE, N'APPROUVE PAS
 
 Un commentaire qui se contente de valider ou de rejeter l'idée de l'auteur (oui je suis d'accord / non c'est faux) n'apporte RIEN. Ton commentaire doit AJOUTER quelque chose que l'auteur n'a pas dit :
@@ -340,11 +350,12 @@ Après avoir lu ton commentaire, l'auteur doit apprendre un truc, réfléchir, o
 
 1. Ouvertures qui valident/reformulent avant d'enchaîner — INTERDITES :
    "Je vois exactement ce que tu décris", "Ce cas illustre parfaitement", "Cette lucidité sur…", "Ce genre de rappel est vital", "Ce qui est bluffant/dingue, c'est…", "Tellement vrai".
-2. Moules de phrase répétitives — NE COMMENCE PAS par :
-   "Le vrai/La vraie [nom], c'est…", "La vraie difficulté/complexité/force, c'est…", "C'est la différence entre…", "[X] révèle…".
-   → Ces structures reviennent tout le temps → si on scrolle tes commentaires, ils se ressemblent tous = signal robot n°1. VARIE l'attaque à chaque fois (question directe, anecdote, chiffre, désaccord, réaction courte…).
-3. Flatterie & superlatifs vides — BANNIS : "prouesse", "bluffant", "surhumain", "impitoyablement", "incroyable", "magistral", "chapeau".
-4. Jargon consultant abstrait — BANNI : "valeur perçue", "architecture mentale", "processus internes", "levier", "scaler". Préfère TOUJOURS un détail concret, un chiffre, un exemple vécu à une phrase abstraite.
+2. LE TIC D'ANTITHÈSE — BANNI ABSOLUMENT (c'est LE moule d'IA n°1 en ce moment) :
+   "ce n'est pas X, c'est Y", "le vrai/la vraie [X], c'est…", "ce qui compte/coûte/change vraiment, c'est…", "X, c'est souvent Y", "le plus dur, ce n'est pas… c'est…", "le piège, c'est…", "le frein, c'est…", "C'est la différence entre…".
+   → Si ta phrase OPPOSE deux idées avec cette structure (pas ça mais ça / le vrai truc c'est), tu as perdu : réécris complètement autrement. VARIE l'attaque à chaque fois (question directe, anecdote, chiffre brut, désaccord franc, réaction courte…).
+3. Flatterie & superlatifs vides — BANNIS : "prouesse", "bluffant", "surhumain", "impitoyablement", "incroyable", "magistral", "chapeau", "rafraîchissant".
+4. Jargon consultant abstrait — BANNI : "valeur perçue", "architecture mentale", "processus internes", "levier", "scaler", "coût d'opportunité", "vélocité", "constance stratégique", "micro-frottements", "angle mort". Préfère TOUJOURS un détail concret, un chiffre, un exemple vécu à une phrase abstraite.
+5. Faux vécu générique — BANNI : "j'ai mis du temps à comprendre que…", "j'ai adopté le même rythme", "j'ai fait l'erreur inverse" SANS détail précis. Ne prétends une expérience QUE si tu peux la rendre concrète (un chiffre, un lieu, un moment). Sinon, n'en invente pas.
 
 ## RÈGLE N°3 : ADAPTE-TOI À LA SITUATION (comme un humain)
 
@@ -388,7 +399,8 @@ ${params.postContent}
 3. Un vrai humain pourrait-il écrire ça en 45s sur son tel ?
 4. Est-ce que ça ÉVITE de reformuler le post ?
 5. Est-ce que j'APPORTE une valeur / un avis (pas juste "d'accord / pas d'accord") ?
-6. Une seule idée, claire, en 2-3 phrases max ?
+6. Une seule idée, claire, en 1-2 phrases max ?
+7. Est-ce que j'évite le tic d'antithèse ("pas X mais Y", "le vrai truc c'est…") ?
 Si "non" à l'une : recommence.
 
 ## OUTPUT

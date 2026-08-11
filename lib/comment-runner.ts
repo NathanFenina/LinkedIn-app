@@ -139,24 +139,44 @@ export async function generateDrafts(
     return { generated, posts_found: 0, errors: errors.slice(0, 5) }
   }
 
-  const searchUrl = buildMemberSearchUrl(memberIds)
+  // IMPORTANT : LinkedIn renvoie 0 résultat quand on passe TROP de membres dans
+  // une seule URL `fromMember` (comportement durci côté LinkedIn → c'est ce qui
+  // a coupé la génération). On découpe donc les membres en petits paquets et on
+  // agrège. Bonus : on couvre mieux le feed.
+  const CHUNK = 12
+  const chunks: string[][] = []
+  for (let i = 0; i < memberIds.length; i += CHUNK) chunks.push(memberIds.slice(i, i + CHUNK))
+
   const fresh: SearchPost[] = []
-  let cursor: string | undefined = undefined
-  let pages = 0
-  // On va chercher en profondeur (jusqu'à 15 pages) tant qu'on n'a pas atteint
-  // le plafond : le seul frein doit être le nombre réel de posts <24h dispo
-  // chez tes membres, pas une pagination trop courte qui bridait à ~15.
-  while (fresh.length < limit && pages < 15) {
-    const { items, cursor: next } = await searchPostsBySearchUrl(ACCOUNT_ID, searchUrl, cursor)
-    pages++
-    for (const p of items) {
-      if (!p.social_id) continue
-      if (doneSet.has(p.social_id)) continue
-      if (fresh.find((f) => f.social_id === p.social_id)) continue
-      fresh.push(p)
+  let searchCalls = 0
+  const MAX_CALLS = 40 // garde-fou : borne le nombre total d'appels recherche
+  for (const chunk of chunks) {
+    if (fresh.length >= limit || searchCalls >= MAX_CALLS) break
+    const searchUrl = buildMemberSearchUrl(chunk)
+    let cursor: string | undefined = undefined
+    let pages = 0
+    while (fresh.length < limit && pages < 3 && searchCalls < MAX_CALLS) {
+      let items: SearchPost[] = []
+      let next: string | undefined
+      try {
+        const res = await searchPostsBySearchUrl(ACCOUNT_ID, searchUrl, cursor)
+        items = res.items
+        next = res.cursor
+      } catch (err) {
+        errors.push(`Recherche membres: ${String(err).slice(0, 80)}`)
+        break
+      }
+      searchCalls++
+      pages++
+      for (const p of items) {
+        if (!p.social_id) continue
+        if (doneSet.has(p.social_id)) continue
+        if (fresh.find((f) => f.social_id === p.social_id)) continue
+        fresh.push(p)
+      }
+      if (!next || !items.length) break
+      cursor = next
     }
-    if (!next || !items.length) break
-    cursor = next
   }
 
   const selected = fresh.slice(0, limit)
