@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { getActiveAccountId } from '@/lib/account'
-import { buildMemberSearchUrl, searchPostsBySearchUrl } from '@/lib/unipile'
+import { getUserPosts } from '@/lib/unipile'
 
 // Diagnostic : que renvoie la recherche de contenu LinkedIn (feed des membres) ?
 // Ouvre cette URL dans le navigateur où tu es connecté à l'app. Aucune donnée
@@ -22,25 +22,22 @@ export async function GET() {
     const accountId = await getActiveAccountId()
     out.account_id_tail = accountId.slice(-6)
 
-    const test = async (label: string, ids: string[]) => {
-      const url = buildMemberSearchUrl(ids)
+    // Nouvelle méthode : posts récents PAR membre (endpoint par-utilisateur).
+    // On teste sur les 4 premiers membres pour confirmer que ça renvoie des posts.
+    const perMember: unknown[] = []
+    for (const id of members.slice(0, 4)) {
       try {
-        const { items, cursor } = await searchPostsBySearchUrl(accountId, url)
-        out[label] = {
-          members: ids.length,
-          raw_items: items.length,
-          has_cursor: !!cursor,
-          sample: items.slice(0, 3).map((p) => ({ author: p.author_name, posted_at: p.posted_at, has_id: !!p.social_id })),
-        }
+        const posts = await getUserPosts(accountId, id, 3)
+        perMember.push({
+          member: id.slice(0, 12),
+          count: posts.length,
+          sample: posts.slice(0, 2).map((p) => ({ author: p.author_name, posted_at: p.posted_at, has_id: !!p.social_id, excerpt: (p.post_content || '').slice(0, 50) })),
+        })
       } catch (err) {
-        out[label] = { members: ids.length, error: String(err).slice(0, 300) }
+        perMember.push({ member: id.slice(0, 12), error: String(err).slice(0, 200) })
       }
     }
-
-    // 3 tailles pour isoler si c'est le nombre de membres qui casse la recherche.
-    await test('chunk_5', members.slice(0, 5))
-    await test('chunk_12', members.slice(0, 12))
-    await test('full', members)
+    out.per_member = perMember
 
     return Response.json(out)
   } catch (err) {

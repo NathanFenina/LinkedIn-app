@@ -285,6 +285,32 @@ export function extractPostUrls(input: string): string[] {
   return Array.from(new Set(cleaned))
 }
 
+// Posts RÉCENTS d'un membre précis (son activité), via l'endpoint par-utilisateur.
+// Fiable, contrairement à la recherche de contenu `fromMember` que LinkedIn a
+// restreinte (elle renvoie 0). `identifier` = provider_id (ACoAA…).
+export async function getUserPosts(
+  accountId: string,
+  identifier: string,
+  limit = 5
+): Promise<SearchPost[]> {
+  const params = new URLSearchParams({ account_id: accountId, limit: String(limit) })
+  const data = await unipileFetch(`/users/${encodeURIComponent(identifier)}/posts?${params.toString()}`)
+  const raw = (data.items || []) as Array<Record<string, unknown>>
+  return raw.map((p) => {
+    const author = (p.author || {}) as Record<string, unknown>
+    const shareUrl = (p.share_url as string) || ''
+    return {
+      author_name: (author.name as string) || '',
+      author_id: (author.id as string) || (author.provider_id as string) || identifier,
+      post_content: (p.text as string) || '',
+      url: shareUrl.split('?')[0],
+      social_id: (p.social_id as string) || (p.id as string) || '',
+      type: (p.type as string) || '',
+      posted_at: (p.parsed_datetime as string) || (p.date as string) || null,
+    }
+  })
+}
+
 // One page of the content search. Pass the faceted URL as body {url}.
 export async function searchPostsBySearchUrl(
   accountId: string,

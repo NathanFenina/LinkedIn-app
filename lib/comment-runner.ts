@@ -1,7 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import {
-  buildMemberSearchUrl,
-  searchPostsBySearchUrl,
+  getUserPosts,
   sendPostComment,
   likePost,
   getPost,
@@ -139,43 +138,40 @@ export async function generateDrafts(
     return { generated, posts_found: 0, errors: errors.slice(0, 5) }
   }
 
-  // IMPORTANT : LinkedIn renvoie 0 résultat quand on passe TROP de membres dans
-  // une seule URL `fromMember` (comportement durci côté LinkedIn → c'est ce qui
-  // a coupé la génération). On découpe donc les membres en petits paquets et on
-  // agrège. Bonus : on couvre mieux le feed.
-  const CHUNK = 12
-  const chunks: string[][] = []
-  for (let i = 0; i < memberIds.length; i += CHUNK) chunks.push(memberIds.slice(i, i + CHUNK))
+  // IMPORTANT : la recherche de contenu globale `fromMember` de LinkedIn renvoie
+  // désormais 0 résultat (restreinte de leur côté — confirmé par diagnostic).
+  // On va donc chercher les posts RÉCENTS de CHAQUE membre via l'endpoint
+  // par-utilisateur, et on filtre soi-même sur les dernières 24h.
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const isFresh24h = (iso: string | null) => {
+    if (!iso) return true // pas de date renvoyée → on ne bloque pas
+    const t = new Date(iso).getTime()
+    return Number.isNaN(t) ? true : now - t <= DAY_MS
+  }
+
+  // Rotation quotidienne du point de départ → tous les membres passent au fil des
+  // jours (on ne commente pas toujours les 30 mêmes en tête de liste).
+  const startAt = Math.floor(now / DAY_MS) % memberIds.length
+  const ordered = [...memberIds.slice(startAt), ...memberIds.slice(0, startAt)]
 
   const fresh: SearchPost[] = []
-  let searchCalls = 0
-  const MAX_CALLS = 40 // garde-fou : borne le nombre total d'appels recherche
-  for (const chunk of chunks) {
-    if (fresh.length >= limit || searchCalls >= MAX_CALLS) break
-    const searchUrl = buildMemberSearchUrl(chunk)
-    let cursor: string | undefined = undefined
-    let pages = 0
-    while (fresh.length < limit && pages < 3 && searchCalls < MAX_CALLS) {
-      let items: SearchPost[] = []
-      let next: string | undefined
-      try {
-        const res = await searchPostsBySearchUrl(ACCOUNT_ID, searchUrl, cursor)
-        items = res.items
-        next = res.cursor
-      } catch (err) {
-        errors.push(`Recherche membres: ${String(err).slice(0, 80)}`)
-        break
-      }
-      searchCalls++
-      pages++
-      for (const p of items) {
-        if (!p.social_id) continue
-        if (doneSet.has(p.social_id)) continue
-        if (fresh.find((f) => f.social_id === p.social_id)) continue
-        fresh.push(p)
-      }
-      if (!next || !items.length) break
-      cursor = next
+  for (const memberId of ordered) {
+    if (fresh.length >= limit) break
+    let posts: SearchPost[] = []
+    try {
+      posts = await getUserPosts(ACCOUNT_ID, memberId, 3)
+    } catch (err) {
+      errors.push(`Posts de ${memberId.slice(0, 10)}…: ${String(err).slice(0, 60)}`)
+      continue
+    }
+    for (const p of posts) {
+      if (!p.social_id) continue
+      if (!isFresh24h(p.posted_at)) continue
+      if (doneSet.has(p.social_id)) continue
+      if (fresh.find((f) => f.social_id === p.social_id)) continue
+      fresh.push(p)
+      if (fresh.length >= limit) break
     }
   }
 
