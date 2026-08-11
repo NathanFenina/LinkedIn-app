@@ -159,54 +159,67 @@ export async function generateDrafts(
   const startAt = Math.floor(now / DAY_MS) % memberIds.length
   const ordered = [...memberIds.slice(startAt), ...memberIds.slice(0, startAt)]
 
+  // On récupère les posts des membres par paquets de 10 EN PARALLÈLE (au lieu
+  // de 122 appels en file → beaucoup plus rapide), et on s'arrête dès qu'on a
+  // assez de posts frais pour le plafond du jour.
   const fresh: SearchPost[] = []
-  for (const memberId of ordered) {
-    if (fresh.length >= limit) break
-    let posts: SearchPost[] = []
-    try {
-      posts = await getUserPosts(ACCOUNT_ID, memberId, 3)
-    } catch (err) {
-      errors.push(`Posts de ${memberId.slice(0, 10)}…: ${String(err).slice(0, 60)}`)
-      continue
-    }
-    for (const p of posts) {
-      if (!p.social_id) continue
-      if (!isFresh(p.posted_at)) continue
-      if (doneSet.has(p.social_id)) continue
-      if (fresh.find((f) => f.social_id === p.social_id)) continue
-      fresh.push(p)
-      if (fresh.length >= limit) break
+  const seen = new Set<string>()
+  for (let i = 0; i < ordered.length && fresh.length < limit; i += 10) {
+    const batch = ordered.slice(i, i + 10)
+    const results = await Promise.all(
+      batch.map((memberId) =>
+        getUserPosts(ACCOUNT_ID, memberId, 3).catch((err) => {
+          errors.push(`Posts de ${memberId.slice(0, 10)}…: ${String(err).slice(0, 60)}`)
+          return [] as SearchPost[]
+        })
+      )
+    )
+    for (const posts of results) {
+      for (const p of posts) {
+        if (!p.social_id || seen.has(p.social_id)) continue
+        if (!isFresh(p.posted_at)) continue
+        if (doneSet.has(p.social_id)) continue
+        seen.add(p.social_id)
+        fresh.push(p)
+      }
     }
   }
 
+  // Génération des commentaires par lots de 5 en parallèle (au lieu de 1 par 1).
   const selected = fresh.slice(0, limit)
-  for (const post of selected) {
-    let comment = ''
-    try {
-      comment = await generateLinkedInComment({
-        authorName: post.author_name || 'l’auteur',
-        postContent: post.post_content,
-        allowSelfPromo: campaign.allow_self_promo,
-        instructions: campaign.instructions,
-        badExamples,
+  for (let i = 0; i < selected.length; i += 5) {
+    const batch = selected.slice(i, i + 5)
+    const drafts = await Promise.all(
+      batch.map(async (post) => {
+        try {
+          const comment = await generateLinkedInComment({
+            authorName: post.author_name || 'l’auteur',
+            postContent: post.post_content,
+            allowSelfPromo: campaign.allow_self_promo,
+            instructions: campaign.instructions,
+            badExamples,
+          })
+          return comment ? { post, comment } : null
+        } catch (err) {
+          errors.push(`IA ${post.author_name}: ${String(err).slice(0, 80)}`)
+          return null
+        }
       })
-    } catch (err) {
-      errors.push(`IA ${post.author_name}: ${String(err)}`)
-      continue
+    )
+    for (const d of drafts) {
+      if (!d) continue
+      const { error } = await db.from('comment_sends').insert({
+        campaign_id: campaign.id,
+        post_social_id: d.post.social_id,
+        post_url: d.post.url,
+        author_name: d.post.author_name,
+        author_id: d.post.author_id,
+        post_excerpt: (d.post.post_content || '').slice(0, 400),
+        comment_text: d.comment,
+        status: 'draft',
+      })
+      if (!error) generated++
     }
-    if (!comment) continue
-
-    const { error } = await db.from('comment_sends').insert({
-      campaign_id: campaign.id,
-      post_social_id: post.social_id,
-      post_url: post.url,
-      author_name: post.author_name,
-      author_id: post.author_id,
-      post_excerpt: (post.post_content || '').slice(0, 400),
-      comment_text: comment,
-      status: 'draft',
-    })
-    if (!error) generated++
   }
 
   return { generated, posts_found: fresh.length, errors: errors.slice(0, 5) }
