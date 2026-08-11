@@ -31,13 +31,16 @@ export async function GET(
       .eq('id', id)
       .single()
     if (error) throw error
-    const { data: sends } = await db
-      .from('comment_sends')
-      .select('*')
-      .eq('campaign_id', id)
-      .order('created_at', { ascending: false })
-      .limit(50)
-    return Response.json({ campaign, sends: sends || [] })
+    // On charge brouillons ET postés SÉPARÉMENT : sinon, quand il y a beaucoup
+    // de brouillons récents, ils poussaient les commentaires postés (plus
+    // anciens) hors de la limite → compteurs à 0 alors que des commentaires
+    // étaient bien partis.
+    const [{ data: drafts }, { data: sent }] = await Promise.all([
+      db.from('comment_sends').select('*').eq('campaign_id', id).eq('status', 'draft').order('created_at', { ascending: false }).limit(120),
+      db.from('comment_sends').select('*').eq('campaign_id', id).eq('status', 'sent').order('created_at', { ascending: false }).limit(60),
+    ])
+    const sends = [...(drafts || []), ...(sent || [])]
+    return Response.json({ campaign, sends })
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }
