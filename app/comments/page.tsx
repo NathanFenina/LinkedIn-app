@@ -161,6 +161,19 @@ export default function CommentsPage() {
     fetchCampaigns()
   }
 
+  // Lance la session qui poste TOUS les brouillons restants, espacés, sans
+  // ouvrir GitHub (déclenche le workflow via l'API).
+  const publishAll = async (id: string) => {
+    if (!confirm('Lancer la publication des brouillons restants ? Ils partiront un par un, espacés (3-4 min), sur LinkedIn.')) return
+    setBusyId(id)
+    setMsg('Lancement de la session de publication…')
+    const res = await fetch(`/api/comment-campaigns/${id}/publish`, { method: 'POST' })
+    const data = await res.json()
+    setBusyId(null)
+    if (data.error) setMsg(`⚠️ ${data.error}`)
+    else setMsg(data.message || 'Session lancée ✅. Les commentaires vont partir espacés — reviens dans quelques minutes.')
+  }
+
   const saveDraft = async (campaignId: string, sendId: string, text: string) => {
     await fetch(`/api/comment-sends/${sendId}`, {
       method: 'PATCH',
@@ -427,6 +440,10 @@ export default function CommentsPage() {
                 <button disabled={busy} onClick={() => generate(c.id)}
                   className="inline-flex items-center gap-1.5 text-xs px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 shadow-sm transition">
                   {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Générer les brouillons
+                </button>
+                <button disabled={busy || drafts.length === 0} onClick={() => publishAll(c.id)}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 shadow-sm transition">
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Publier tout (auto, espacé)
                 </button>
                 <button disabled={busy || drafts.length === 0} onClick={() => postOne(c.id)}
                   className="inline-flex items-center gap-1.5 text-xs px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition">
