@@ -142,12 +142,16 @@ export async function generateDrafts(
   // désormais 0 résultat (restreinte de leur côté — confirmé par diagnostic).
   // On va donc chercher les posts RÉCENTS de CHAQUE membre via l'endpoint
   // par-utilisateur, et on filtre soi-même sur les dernières 24h.
+  // Fenêtre de fraîcheur : 36h pour capter tout le "depuis hier" (un post d'hier
+  // matin est à ~30h quand le cron tourne). Assez récent pour du reach, assez
+  // large pour du volume.
   const DAY_MS = 24 * 60 * 60 * 1000
+  const FRESH_MS = 36 * 60 * 60 * 1000
   const now = Date.now()
-  const isFresh24h = (iso: string | null) => {
+  const isFresh = (iso: string | null) => {
     if (!iso) return true // pas de date renvoyée → on ne bloque pas
     const t = new Date(iso).getTime()
-    return Number.isNaN(t) ? true : now - t <= DAY_MS
+    return Number.isNaN(t) ? true : now - t <= FRESH_MS
   }
 
   // Rotation quotidienne du point de départ → tous les membres passent au fil des
@@ -167,7 +171,7 @@ export async function generateDrafts(
     }
     for (const p of posts) {
       if (!p.social_id) continue
-      if (!isFresh24h(p.posted_at)) continue
+      if (!isFresh(p.posted_at)) continue
       if (doneSet.has(p.social_id)) continue
       if (fresh.find((f) => f.social_id === p.social_id)) continue
       fresh.push(p)
