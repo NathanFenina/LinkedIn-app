@@ -29,6 +29,12 @@ function scoreCls(s: number) {
   return 'bg-gray-100 text-gray-500'
 }
 
+// Fondateur / décideur (la recherche mot-clé LinkedIn laisse passer des non-fondateurs).
+const FOUNDER_RE = /\b(fondat|co-?fondat|founder|co-?found|ceo|dirigeant|g[ée]rant|pr[ée]sident|owner|co-?owner)\b/i
+// Prestataires marketing (vendent le service → pas des acheteurs) + faux "CMO"
+// (Chief Medical Officer, CRO) + rôles hors-cible (commercial). Sur la tagline.
+const PROVIDER_RE = /(freelance|fractional|part[- ]?time|externalis|temps partag|\bagence\b|\bagency\b|consultant|\badvisor\b|j['’]aide|j['’]accompagne|nous aidons|nous accompagnons|chief medical|medical officer|\bcro\b|chief revenue|business develop|commercial|n[ée]gociat)/i
+
 export default function OutreachPage() {
   const [campaigns, setCampaigns] = useState<OutreachCampaign[]>([])
   const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
@@ -167,6 +173,22 @@ export default function OutreachPage() {
     } finally { setBusy(null) }
   }
 
+  // Nettoie la FILE : retire (status skipped) tous les approuvés qui matchent
+  // les prestataires / faux CMO / commerciaux. Un clic pour dépolluer la file.
+  async function cleanQueue() {
+    const rows = targets.filter((t) => t.status === 'approved' && PROVIDER_RE.test(t.headline || ''))
+    if (!rows.length) { setMsg('Aucun prestataire / faux CMO dans la file 👍'); return }
+    if (!confirm(`Retirer ${rows.length} prestataire(s) / faux CMO de la file d'envoi ?`)) return
+    setBusy('bulk'); setMsg('')
+    try {
+      await Promise.all(rows.map((t) =>
+        fetch(`/api/outreach/targets/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'skipped' }) })
+      ))
+      setMsg(`✓ ${rows.length} retiré(s) de la file`)
+      await loadTargets(selected!); await fetchCampaigns()
+    } finally { setBusy(null) }
+  }
+
   async function runStep(id: string) {
     setBusy('run'); setMsg('')
     try {
@@ -196,12 +218,6 @@ export default function OutreachPage() {
   const current = campaigns.find((c) => c.id === selected)
   const c = counts[selected || ''] || {}
   const f = filter.trim().toLowerCase()
-  // Fondateur / décideur : on se base sur la tagline (headline) car la recherche
-  // LinkedIn par mot-clé laisse passer des non-fondateurs.
-  const FOUNDER_RE = /\b(fondat|co-?fondat|founder|co-?found|ceo|dirigeant|g[ée]rant|pr[ée]sident|owner|co-?owner)\b/i
-  // Prestataires marketing (vendent le service → pas des acheteurs) + faux "CMO"
-  // (Chief Medical Officer, CRO). On masque sur la tagline.
-  const PROVIDER_RE = /(freelance|fractional|part[- ]?time|externalis|temps partag|\bagence\b|\bagency\b|consultant|\badvisor\b|j['’]aide|j['’]accompagne|nous aidons|nous accompagnons|chief medical|medical officer|\bcro\b|chief revenue|business develop)/i
   function matchFilter(t: TargetWithHistory) {
     if (foundersOnly && !FOUNDER_RE.test(t.headline || '')) return false
     if (hideProviders && PROVIDER_RE.test(t.headline || '')) return false
@@ -435,7 +451,19 @@ export default function OutreachPage() {
               <TargetTable
                 title="En file d'attente d'envoi" tone="blue" rows={approved} busy={busy}
                 bulk={approved.length > 0 && (
-                  <span className="text-[11px] text-gray-400">Envoi auto, espacé, max {current.daily_cap}/j — ou « Avancer (test) » pour envoyer 1 tout de suite.</span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={cleanQueue} disabled={busy === 'bulk'}
+                      title="Retire de la file les prestataires, faux CMO (medical/CRO) et commerciaux"
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+                      <XCircle className="w-3.5 h-3.5" /> Nettoyer la file
+                    </button>
+                    {(f || foundersOnly || hideProviders) && (
+                      <button onClick={() => bulkStatus('approved', 'skipped')} disabled={busy === 'bulk'}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                        <XCircle className="w-3.5 h-3.5" /> Retirer les {approved.length} affichés
+                      </button>
+                    )}
+                  </div>
                 )}
                 rowActions={(t) => (
                   <button onClick={() => setStatus(t, 'skipped')} className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50">
