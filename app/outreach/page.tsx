@@ -39,6 +39,7 @@ export default function OutreachPage() {
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState('')
   const [foundersOnly, setFoundersOnly] = useState(false)
+  const [hideProviders, setHideProviders] = useState(false)
 
   // create form
   const [name, setName] = useState('')
@@ -198,8 +199,12 @@ export default function OutreachPage() {
   // Fondateur / décideur : on se base sur la tagline (headline) car la recherche
   // LinkedIn par mot-clé laisse passer des non-fondateurs.
   const FOUNDER_RE = /\b(fondat|co-?fondat|founder|co-?found|ceo|dirigeant|g[ée]rant|pr[ée]sident|owner|co-?owner)\b/i
+  // Prestataires marketing (vendent le service → pas des acheteurs) + faux "CMO"
+  // (Chief Medical Officer, CRO). On masque sur la tagline.
+  const PROVIDER_RE = /(freelance|fractional|part[- ]?time|externalis|temps partag|\bagence\b|\bagency\b|consultant|\badvisor\b|j['’]aide|j['’]accompagne|nous aidons|nous accompagnons|chief medical|medical officer|\bcro\b|chief revenue|business develop)/i
   function matchFilter(t: TargetWithHistory) {
     if (foundersOnly && !FOUNDER_RE.test(t.headline || '')) return false
+    if (hideProviders && PROVIDER_RE.test(t.headline || '')) return false
     if (!f) return true
     return `${t.name || ''} ${t.headline || ''}`.toLowerCase().includes(f)
   }
@@ -389,7 +394,11 @@ export default function OutreachPage() {
                   <input type="checkbox" checked={foundersOnly} onChange={(e) => setFoundersOnly(e.target.checked)} />
                   Fondateurs seulement
                 </label>
-                {(f || foundersOnly) && <span className="text-xs text-gray-500 shrink-0">{toValidate.length}/{sourcedTotal}</span>}
+                <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 shrink-0 cursor-pointer select-none" title="Masque freelance / agence / consultant / fractional / part-time / externalisé + faux CMO (medical, CRO)">
+                  <input type="checkbox" checked={hideProviders} onChange={(e) => setHideProviders(e.target.checked)} />
+                  Masquer les prestataires
+                </label>
+                {(f || foundersOnly || hideProviders) && <span className="text-xs text-gray-500 shrink-0">{toValidate.length}/{sourcedTotal}</span>}
               </div>
 
               {/* À VALIDER — tableau + actions groupées */}
