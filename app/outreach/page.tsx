@@ -189,6 +189,18 @@ export default function OutreachPage() {
     } finally { setBusy(null) }
   }
 
+  // Lance la session d'envoi (GitHub) : envoie la file espacé, sans ouvrir GitHub.
+  async function publishSession(id: string) {
+    if (!confirm('Lancer la session d\'envoi ? Les messages de la file partiront un par un, espacés (4-6 min), jusqu\'au plafond du jour.')) return
+    setBusy('publish'); setMsg('')
+    try {
+      const res = await fetch(`/api/outreach/${id}/publish`, { method: 'POST' })
+      const data = await res.json()
+      if (data.error) setMsg(`⚠️ ${data.error}`)
+      else setMsg(data.message || 'Session lancée ✅ — reviens dans quelques minutes, la file se vide.')
+    } catch (err) { setMsg('Erreur : ' + errMsg(err)) } finally { setBusy(null) }
+  }
+
   async function runStep(id: string) {
     setBusy('run'); setMsg('')
     try {
@@ -336,8 +348,12 @@ export default function OutreachPage() {
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                   {busy === 'rescan' ? <Loader2 className="w-4 h-4 animate-spin" /> : <History className="w-4 h-4" />} Re-scan historique
                 </button>
-                <button onClick={() => runStep(current.id)} disabled={busy === 'run'} title="Envoie 1 message maintenant (test). En prod, la session GitHub envoie tout seul, espacé."
-                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                <button onClick={() => publishSession(current.id)} disabled={busy === 'publish'} title="Lance la session d'envoi : la file part un par un, espacé (4-6 min), jusqu'au plafond du jour."
+                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
+                  {busy === 'publish' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Lancer l&apos;envoi
+                </button>
+                <button onClick={() => runStep(current.id)} disabled={busy === 'run'} title="Envoie 1 message maintenant (test)."
+                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                   {busy === 'run' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Avancer (test)
                 </button>
                 <button onClick={() => toggleActive(current)} title={current.active ? 'Mettre en pause' : 'Activer'} className="p-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">
