@@ -350,6 +350,7 @@ Après avoir lu ton commentaire, l'auteur doit apprendre un truc, réfléchir, o
 
 1. Ouvertures qui valident/reformulent avant d'enchaîner — INTERDITES :
    "Je vois exactement ce que tu décris", "Ce cas illustre parfaitement", "Cette lucidité sur…", "Ce genre de rappel est vital", "Ce qui est bluffant/dingue, c'est…", "Tellement vrai".
+1bis. NE COMMENCE PAS le commentaire par "Franchement", "En vrai", "Clairement", "C'est clair", "Honnêtement". Ces mots parlés sont OK au milieu d'une phrase, mais en OUVERTURE ils reviennent tout le temps → si on scrolle tes commentaires ils se ressemblent tous. Attaque plutôt direct : par le fond, une question, un chiffre, un désaccord, un exemple. Chaque commentaire doit démarrer différemment du précédent.
 2. LE TIC D'ANTITHÈSE — BANNI ABSOLUMENT (c'est LE moule d'IA n°1 en ce moment) :
    "ce n'est pas X, c'est Y", "le vrai/la vraie [X], c'est…", "ce qui compte/coûte/change vraiment, c'est…", "X, c'est souvent Y", "le plus dur, ce n'est pas… c'est…", "le piège, c'est…", "le frein, c'est…", "C'est la différence entre…".
    → Si ta phrase OPPOSE deux idées avec cette structure (pas ça mais ça / le vrai truc c'est), tu as perdu : réécris complètement autrement. VARIE l'attaque à chaque fois (question directe, anecdote, chiffre brut, désaccord franc, réaction courte…).
