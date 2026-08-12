@@ -9,13 +9,21 @@ on:
     # 06:00 UTC = 8h heure française (été, CEST). Déclenchement approximatif
     # (GitHub peut décaler de quelques minutes). Change l'heure ici si besoin.
     - cron: '0 6 * * *'
-  workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
+  workflow_dispatch:        # bouton "Run workflow" / déclenchement par l'app
+    inputs:
+      post_only:
+        description: "Ne poster que les brouillons existants (ne pas en générer de nouveaux)"
+        required: false
+        default: "false"
 jobs:
   session:
     runs-on: ubuntu-latest
     timeout-minutes: 350    # garde-fou (< 6h)
     steps:
       - name: Generate drafts (campagnes en auto_generate)
+        # Sauté quand l'app lance "Publier tout" (post_only=true) → on ne crée pas
+        # de brouillons non validés, on poste seulement ce qui est déjà là.
+        if: ${{ github.event.inputs.post_only != 'true' }}
         env:
           APP_URL: https://linked-in-app-black.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}

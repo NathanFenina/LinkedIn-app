@@ -29,7 +29,9 @@ export async function POST() {
         'X-GitHub-Api-Version': '2022-11-28',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ref: process.env.GITHUB_REF || 'main' }),
+      // post_only: la session poste UNIQUEMENT les brouillons existants (déjà
+      // relus), sans en générer de nouveaux non validés.
+      body: JSON.stringify({ ref: process.env.GITHUB_REF || 'main', inputs: { post_only: 'true' } }),
     })
     if (res.status === 204) {
       return Response.json({ ok: true, message: 'Session de publication lancée. Les commentaires vont partir un par un, espacés (3-4 min).' })
