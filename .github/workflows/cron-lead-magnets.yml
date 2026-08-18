@@ -34,7 +34,7 @@ jobs:
             url="$url?campaign_id=$CAMPAIGN_ID"
           fi
 
-          for i in $(seq 1 60); do
+          for i in $(seq 1 200); do
             resp=$(curl -fsSL -X POST \
               -H "Authorization: Bearer $CRON_SECRET" \
               "$url")
