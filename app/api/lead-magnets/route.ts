@@ -18,11 +18,19 @@ export async function GET() {
     const campaigns = data || []
     const withCounts = await Promise.all(
       campaigns.map(async (c: { id: string }) => {
-        const { count } = await db
-          .from('lead_magnet_sends')
-          .select('id', { count: 'exact', head: true })
-          .eq('campaign_id', c.id)
-        return { ...c, sent_count: count || 0 }
+        const [{ count: sentCount }, { count: failedCount }] = await Promise.all([
+          db
+            .from('lead_magnet_sends')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', c.id)
+            .not('message_sent', 'ilike', '[ÉCHEC]%'),
+          db
+            .from('lead_magnet_sends')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', c.id)
+            .ilike('message_sent', '[ÉCHEC]%'),
+        ])
+        return { ...c, sent_count: sentCount || 0, failed_count: failedCount || 0 }
       })
     )
     return Response.json(withCounts)

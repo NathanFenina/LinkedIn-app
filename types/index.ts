@@ -115,6 +115,7 @@ export interface LeadMagnetCampaign {
   created_at: string
   updated_at: string
   sent_count?: number
+  failed_count?: number
 }
 
 // Feature 7 — séquenceur outbound

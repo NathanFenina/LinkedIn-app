@@ -16,7 +16,7 @@
 
 import { getServerSupabase } from '@/lib/supabase'
 import { getPostComments, startNewChat, normalizeComment, resolvePostSocialId } from '@/lib/unipile'
-import { guard } from '@/lib/limits'
+import { checkLimit, logAction } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
 
 export const maxDuration = 300
@@ -125,12 +125,15 @@ async function sendOne(
         const matches = !triggerKw || (n.comment_text || '').toLowerCase().includes(triggerKw)
         if (!matches) continue
 
-        const g = await guard(db, ACCOUNT_ID, 'dm')
-        if (!g.allowed) return { sent: 0, reason: g.reason || 'Plafond messages atteint' }
+        // Cap DM en LECTURE SEULE : on ne consomme le quota que sur un envoi
+        // réussi (un échec = personne non-contactable, ne doit pas brûler le quota).
+        const chk = await checkLimit(db, ACCOUNT_ID, 'dm')
+        if (!chk.allowed) return { sent: 0, reason: chk.reason || 'Plafond messages atteint' }
 
         const personalised = await personalize(campaign.message_template, n.commenter_name, campaign.magnet_url)
         try {
           await startNewChat(ACCOUNT_ID, providerId, personalised)
+          await logAction(db, ACCOUNT_ID, 'dm')
           await db.from('lead_magnet_sends').insert({
             campaign_id: campaign.id,
             commenter_provider_id: providerId,
@@ -142,10 +145,26 @@ async function sendOne(
           await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
           return { sent: 1, campaign: campaign.name, name: n.commenter_name }
         } catch (err) {
-          // Erreur d'envoi sur ce commentateur : on le note comme traité pour
-          // ne pas boucler dessus, et on rendra la main (sent=0 → la boucle
-          // réessaiera au prochain tour avec le suivant).
-          return { sent: 0, reason: `${n.commenter_name}: ${String(err)}` }
+          // Personne non-contactable (pas connectée / DM fermés / restriction) :
+          // on la marque ([ÉCHEC] dans message_sent) pour ne PAS la reproposer,
+          // et on CONTINUE au commentateur suivant — un seul échec ne doit jamais
+          // arrêter toute la distribution.
+          sentSet.add(providerId)
+          await db
+            .from('lead_magnet_sends')
+            .insert({
+              campaign_id: campaign.id,
+              commenter_provider_id: providerId,
+              commenter_name: n.commenter_name,
+              commenter_profile_url: n.commenter_profile_url,
+              comment_text: n.comment_text,
+              message_sent: `[ÉCHEC] ${String(err).slice(0, 180)}`,
+            })
+            .then(
+              () => {},
+              () => {}
+            )
+          continue
         }
       }
       if (!next) break

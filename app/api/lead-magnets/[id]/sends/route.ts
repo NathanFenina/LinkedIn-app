@@ -11,6 +11,7 @@ export async function GET(
       .from('lead_magnet_sends')
       .select('*')
       .eq('campaign_id', id)
+      .not('message_sent', 'ilike', '[ÉCHEC]%')
       .order('sent_at', { ascending: false })
     if (error) throw error
     return Response.json(data)

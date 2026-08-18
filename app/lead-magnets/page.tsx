@@ -350,15 +350,17 @@ export default function LeadMagnetsPage() {
                   {/* Panneau de distribution : état + progression */}
                   {(() => {
                     const sent = c.sent_count || 0
+                    const failed = c.failed_count || 0
                     const total = previewMeta?.matches
-                    const remaining = total != null ? Math.max(0, total - sent) : null
-                    const pct = total && total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : null
+                    // Restants = cibles non encore traitées (ni envoyées, ni non-contactables).
+                    const remaining = total != null ? Math.max(0, total - sent - failed) : null
+                    const pct = total && total > 0 ? Math.min(100, Math.round(((sent + failed) / total) * 100)) : null
                     const isRunning = !!running && c.active
                     const stateLabel = isRunning
                       ? 'Distribution en cours'
                       : !c.active && sent > 0
                         ? 'En pause'
-                        : sent > 0 && remaining === 0
+                        : (sent > 0 || failed > 0) && remaining === 0
                           ? 'Terminée'
                           : 'Prête'
                     const stateClass = isRunning
@@ -379,6 +381,11 @@ export default function LeadMagnetsPage() {
                           {total != null && <span className="text-gray-400">/ {total} cibles</span>}
                           {remaining != null && remaining > 0 && (
                             <span className="text-gray-400">· {remaining} restants</span>
+                          )}
+                          {failed > 0 && (
+                            <span className="text-amber-600" title="Personnes non joignables en DM (pas connectées ou messagerie fermée) — automatiquement ignorées.">
+                              · {failed} non contactables
+                            </span>
                           )}
                           <span className="text-gray-400 ml-auto">1 DM toutes les 2-3 min</span>
                         </div>
