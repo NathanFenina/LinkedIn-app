@@ -12,7 +12,20 @@ export async function GET() {
     } catch {}
     const { data, error } = await query.order('created_at', { ascending: false })
     if (error) throw error
-    return Response.json(data)
+
+    // Nombre de DM déjà envoyés par campagne (pour la barre de progression /
+    // l'état de la distribution dans l'app).
+    const campaigns = data || []
+    const withCounts = await Promise.all(
+      campaigns.map(async (c: { id: string }) => {
+        const { count } = await db
+          .from('lead_magnet_sends')
+          .select('id', { count: 'exact', head: true })
+          .eq('campaign_id', c.id)
+        return { ...c, sent_count: count || 0 }
+      })
+    )
+    return Response.json(withCounts)
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }

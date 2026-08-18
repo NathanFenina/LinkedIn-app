@@ -21,6 +21,7 @@ export default function LeadMagnetsPage() {
   const [msg, setMsg] = useState('')
   const [previewByCampaign, setPreviewByCampaign] = useState<Record<string, { name: string | null; comment: string | null }[]>>({})
   const [previewMetaByCampaign, setPreviewMetaByCampaign] = useState<Record<string, { matches: number; scanned: number }>>({})
+  const [dist, setDist] = useState<{ status?: string; conclusion?: string | null; started_at?: string; html_url?: string; available?: boolean; none?: boolean }>({})
   const [sendsByCampaign, setSendsByCampaign] = useState<Record<string, SendRow[]>>({})
 
   // create form
@@ -37,9 +38,29 @@ export default function LeadMagnetsPage() {
     if (Array.isArray(data)) setCampaigns(data)
   }, [])
 
+  const fetchDist = useCallback(async () => {
+    try {
+      const d = await fetch('/api/lead-magnets/publish-status').then((r) => r.json())
+      setDist(d || {})
+    } catch {}
+  }, [])
+
   useEffect(() => {
     fetchCampaigns()
-  }, [fetchCampaigns])
+    fetchDist()
+  }, [fetchCampaigns, fetchDist])
+
+  // Tant qu'une session tourne, on rafraîchit l'état + les compteurs toutes les
+  // 20s pour voir la distribution avancer en direct.
+  const running = dist.available && dist.status && dist.status !== 'completed'
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => {
+      fetchDist()
+      fetchCampaigns()
+    }, 20000)
+    return () => clearInterval(t)
+  }, [running, fetchDist, fetchCampaigns])
 
   const create = async () => {
     if (!name.trim() || !postUrl.trim() || !template.trim()) return
@@ -123,6 +144,9 @@ export default function LeadMagnetsPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setMsg(data.message || 'Session lancée.')
+      // Affiche l'état "en cours" tout de suite, puis re-synchronise avec GitHub.
+      setDist({ available: true, status: 'in_progress' })
+      setTimeout(() => fetchDist(), 6000)
     } catch (err) {
       setMsg(`Erreur: ${String(err)}`)
     } finally {
@@ -322,6 +346,69 @@ export default function LeadMagnetsPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Panneau de distribution : état + progression */}
+                  {(() => {
+                    const sent = c.sent_count || 0
+                    const total = previewMeta?.matches
+                    const remaining = total != null ? Math.max(0, total - sent) : null
+                    const pct = total && total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : null
+                    const isRunning = !!running && c.active
+                    const stateLabel = isRunning
+                      ? 'Distribution en cours'
+                      : !c.active && sent > 0
+                        ? 'En pause'
+                        : sent > 0 && remaining === 0
+                          ? 'Terminée'
+                          : 'Prête'
+                    const stateClass = isRunning
+                      ? 'bg-blue-100 text-blue-700'
+                      : stateLabel === 'En pause'
+                        ? 'bg-amber-100 text-amber-700'
+                        : stateLabel === 'Terminée'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600'
+                    return (
+                      <div className="mt-2 border border-gray-100 rounded-md p-2 bg-gray-50/60">
+                        <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                          <span className={`px-1.5 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${stateClass}`}>
+                            {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />}
+                            {stateLabel}
+                          </span>
+                          <span className="text-gray-700 font-medium">{sent} DM envoyés</span>
+                          {total != null && <span className="text-gray-400">/ {total} cibles</span>}
+                          {remaining != null && remaining > 0 && (
+                            <span className="text-gray-400">· {remaining} restants</span>
+                          )}
+                          <span className="text-gray-400 ml-auto">1 DM toutes les 2-3 min</span>
+                        </div>
+                        {pct != null && (
+                          <div className="mt-1.5 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${isRunning ? 'bg-blue-500' : 'bg-green-500'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        )}
+                        {isRunning && (
+                          <p className="text-[10px] text-gray-500 mt-1">
+                            Les DM partent un par un en arrière-plan (tu peux fermer l&apos;onglet). « Arrêter » coupe au tour suivant.
+                            {dist.html_url && (
+                              <>
+                                {' '}
+                                <a href={dist.html_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                  voir le journal
+                                </a>
+                              </>
+                            )}
+                          </p>
+                        )}
+                        {total == null && sent === 0 && (
+                          <p className="text-[10px] text-gray-400 mt-1">Clique « Simuler » pour voir le nombre de cibles avant de lancer.</p>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {preview && preview.length > 0 && (
                     <div className="mt-2 bg-gray-50 rounded p-2">

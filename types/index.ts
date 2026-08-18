@@ -114,6 +114,7 @@ export interface LeadMagnetCampaign {
   linkedin_account_id: string | null
   created_at: string
   updated_at: string
+  sent_count?: number
 }
 
 // Feature 7 — séquenceur outbound
