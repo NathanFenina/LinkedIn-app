@@ -20,6 +20,7 @@ export default function LeadMagnetsPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const [previewByCampaign, setPreviewByCampaign] = useState<Record<string, { name: string | null; comment: string | null }[]>>({})
+  const [previewMetaByCampaign, setPreviewMetaByCampaign] = useState<Record<string, { matches: number; scanned: number }>>({})
   const [sendsByCampaign, setSendsByCampaign] = useState<Record<string, SendRow[]>>({})
 
   // create form
@@ -98,6 +99,7 @@ export default function LeadMagnetsPage() {
       if (data.error) throw new Error(data.error)
       if (dryRun) {
         setPreviewByCampaign((prev) => ({ ...prev, [id]: data.preview || [] }))
+        setPreviewMetaByCampaign((prev) => ({ ...prev, [id]: { matches: data.matches ?? 0, scanned: data.comments_scanned ?? 0 } }))
         setMsg(`Aperçu : ${data.matches} commentateurs cibles sur ${data.comments_scanned} commentaires`)
       } else {
         setMsg(`${data.messages_sent} DM envoyés sur ${data.matches} cibles (${data.comments_scanned} commentaires scannés)`)
@@ -246,6 +248,7 @@ export default function LeadMagnetsPage() {
           ) : (
             campaigns.map((c) => {
               const preview = previewByCampaign[c.id]
+              const previewMeta = previewMetaByCampaign[c.id]
               const sends = sendsByCampaign[c.id]
               return (
                 <div
@@ -322,7 +325,11 @@ export default function LeadMagnetsPage() {
 
                   {preview && preview.length > 0 && (
                     <div className="mt-2 bg-gray-50 rounded p-2">
-                      <p className="text-[11px] font-medium text-gray-700 mb-1">Aperçu — {preview.length} cibles trouvées</p>
+                      <p className="text-[11px] font-medium text-gray-700 mb-1">
+                        Aperçu — {previewMeta?.matches ?? preview.length} cibles à contacter
+                        {previewMeta ? ` (sur ${previewMeta.scanned} commentaires)` : ''}
+                        {previewMeta && previewMeta.matches > preview.length ? ` · ${preview.length} affichées` : ''}
+                      </p>
                       <ul className="space-y-1">
                         {preview.map((p, i) => (
                           <li key={i} className="text-[11px] text-gray-600">

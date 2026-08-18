@@ -151,7 +151,7 @@ export async function POST(
       comments_scanned: commentsScanned,
       matches: triggeredMatches,
       messages_sent: messagesSent,
-      preview: dry_run ? previewSends.slice(0, 20) : undefined,
+      preview: dry_run ? previewSends.slice(0, 100) : undefined,
       errors: errors.slice(0, 5),
     })
   } catch (err) {
