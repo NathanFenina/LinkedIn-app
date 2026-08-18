@@ -1,0 +1,54 @@
+name: Lead Magnets Session
+# Session d'envoi des lead-magnets : envoie un DM aux commentateurs d'un post,
+# UN PAR UN, espacés d'un délai aléatoire de 2-3 min — comme une vraie personne.
+# Tourne sur le runner GitHub Actions (jusqu'à 6h/job), donc pas de limite
+# Vercel 300s. L'app ne fait qu'"envoie le suivant" à chaque appel ; c'est cette
+# boucle qui gère l'espacement. Les garde-fous (limits.ts) bloquent au plafond
+# LinkedIn. Mettre la campagne en pause (bouton "Arrêter" de l'app) coupe l'envoi
+# au tour suivant.
+on:
+  schedule:
+    # 10:00 UTC ≈ 12h heure française. Déclenchement approximatif (GitHub peut
+    # décaler). Concerne les campagnes actives + auto_run.
+    - cron: '0 10 * * *'
+  workflow_dispatch:        # lancé à la demande depuis l'app (bouton "Lancer l'envoi")
+    inputs:
+      campaign_id:
+        description: 'ID de la campagne à envoyer (vide = toutes les campagnes auto_run)'
+        required: false
+        default: ''
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350    # garde-fou (< 6h)
+    steps:
+      - name: Run lead-magnets session
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CAMPAIGN_ID: ${{ github.event.inputs.campaign_id }}
+        run: |
+          # Cible une campagne précise si fournie, sinon toutes les auto_run.
+          url="$APP_URL/api/cron/lead-magnets"
+          if [ -n "$CAMPAIGN_ID" ]; then
+            url="$url?campaign_id=$CAMPAIGN_ID"
+          fi
+
+          for i in $(seq 1 60); do
+            resp=$(curl -fsSL -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$url")
+            echo "[$i] $resp"
+
+            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
+
+            # Round sans envoi (plus de commentateur, campagne en pause, ou
+            # plafond atteint) → fin de session.
+            if [ "${sent:-0}" = "0" ]; then
+              echo "Session terminée (sent=$sent)."
+              break
+            fi
+
+            # Espacement aléatoire 120-180s (2-3 min) avant le prochain envoi.
+            sleep $(( ( RANDOM % 61 ) + 120 ))
+          done

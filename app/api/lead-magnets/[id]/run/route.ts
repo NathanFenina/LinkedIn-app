@@ -2,6 +2,7 @@ import { getServerSupabase } from '@/lib/supabase'
 import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
 import { guard } from '@/lib/limits'
+import { extractFirstName } from '@/lib/gemini'
 
 export const maxDuration = 300
 
@@ -119,14 +120,19 @@ export async function POST(
         if (!matchesTrigger) continue
         triggeredMatches++
 
-        const personalised = campaign.message_template
-          .replace(/\{name\}/gi, (n.commenter_name || '').split(' ')[0] || '')
-          .replace(/\{magnet_url\}/gi, campaign.magnet_url || '')
-
         if (dry_run) {
           previewSends.push({ name: n.commenter_name, comment: n.comment_text })
           continue
         }
+
+        const quickFirst = (n.commenter_name || '').split(' ')[0] || ''
+        const prenom = /\{prenom\}/i.test(campaign.message_template)
+          ? (await extractFirstName(n.commenter_name || '')) || quickFirst
+          : quickFirst
+        const personalised = campaign.message_template
+          .replace(/\{prenom\}/gi, prenom)
+          .replace(/\{name\}/gi, quickFirst)
+          .replace(/\{magnet_url\}/gi, campaign.magnet_url || '')
 
         const g = await guard(db, ACCOUNT_ID, 'dm')
         if (!g.allowed) {

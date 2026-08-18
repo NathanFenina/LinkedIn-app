@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { LeadMagnetCampaign } from '@/types'
-import { Plus, Play, Trash2, Eye, Power, ExternalLink } from 'lucide-react'
+import { Plus, Play, Trash2, Eye, Square, ExternalLink } from 'lucide-react'
 import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
@@ -110,6 +110,31 @@ export default function LeadMagnetsPage() {
     }
   }
 
+  // Lance la session d'envoi ESPACÉE (2-3 min entre chaque DM) via GitHub
+  // Actions. Réactive la campagne au passage.
+  const publish = async (id: string) => {
+    setBusyId(id)
+    setMsg('Lancement de la session d’envoi espacée…')
+    setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, active: true } : c)))
+    try {
+      const res = await fetch(`/api/lead-magnets/${id}/publish`, { method: 'POST' })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setMsg(data.message || 'Session lancée.')
+    } catch (err) {
+      setMsg(`Erreur: ${String(err)}`)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Coupe l'envoi : met la campagne en pause. La boucle GitHub Actions s'arrête
+  // au tour suivant (dans les 2-3 min).
+  const stop = async (id: string) => {
+    await update(id, { active: false })
+    setMsg('Envoi coupé. La session s’arrête d’ici 2-3 min (fin du délai en cours).')
+  }
+
   const loadSends = async (id: string) => {
     if (sendsByCampaign[id]) {
       setSendsByCampaign((prev) => {
@@ -175,7 +200,7 @@ export default function LeadMagnetsPage() {
           </div>
           <textarea
             rows={4}
-            placeholder="Template du DM. Variables: {name}, {magnet_url}"
+            placeholder="Template du DM. Variables: {prenom} (nettoyé par IA), {name}, {magnet_url}"
             value={template}
             onChange={(e) => setTemplate(e.target.value)}
             className="w-full border border-gray-200 rounded px-2 py-2 text-sm resize-none"
@@ -265,18 +290,20 @@ export default function LeadMagnetsPage() {
                         <Eye className="w-3 h-3" /> Simuler
                       </button>
                       <button
-                        onClick={() => run(c.id, false)}
-                        disabled={busyId !== null || !c.active}
+                        onClick={() => publish(c.id)}
+                        disabled={busyId !== null}
                         className="text-[11px] px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
+                        title="Envoie les DM un par un, espacés 2-3 min (via GitHub Actions)"
                       >
-                        <Play className={`w-3 h-3 ${busyId === c.id ? 'animate-pulse' : ''}`} /> Envoyer
+                        <Play className={`w-3 h-3 ${busyId === c.id ? 'animate-pulse' : ''}`} /> Lancer l&apos;envoi
                       </button>
                       <button
-                        onClick={() => update(c.id, { active: !c.active })}
-                        className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
-                        title={c.active ? 'Pause' : 'Activer'}
+                        onClick={() => stop(c.id)}
+                        disabled={!c.active}
+                        className="text-[11px] px-2 py-1 border border-red-200 text-red-600 rounded hover:bg-red-50 disabled:opacity-40 inline-flex items-center gap-1"
+                        title="Coupe l'envoi en cours (pause la campagne)"
                       >
-                        <Power className="w-3 h-3" />
+                        <Square className="w-3 h-3" /> Arrêter
                       </button>
                       <button
                         onClick={() => loadSends(c.id)}

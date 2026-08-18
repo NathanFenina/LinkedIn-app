@@ -25,6 +25,44 @@ function extractJson(raw: string): string {
   return cleaned
 }
 
+// Heuristique locale : nettoie un nom complet LinkedIn (emojis, titres, suffixes
+// "| CEO @X", "- Fondateur", etc.) et renvoie un prénom présentable. Sert de
+// secours si l'IA n'est pas dispo, et de garde-fou sur la sortie de l'IA.
+function heuristicFirstName(fullName: string): string {
+  const cleaned = (fullName || '')
+    .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, ' ') // emojis/symboles
+    .split(/[|•·—–\-,/(]/)[0] // coupe avant un séparateur de tagline
+    .replace(/\b(dr|pr|me|m|mme|mr|mrs|ms|prof)\.?\b/gi, ' ') // titres
+    .replace(/[^\p{L}\s'’-]/gu, ' ')
+    .trim()
+  const first = cleaned.split(/\s+/)[0] || ''
+  if (!first || first.length < 2) return ''
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
+
+// Extrait un prénom propre à partir du nom affiché d'un commentateur, via l'IA
+// (gère les cas tordus : "Jean-Marc DUPONT | CMO @Acme 🚀", "DR. Léa B.", noms
+// en majuscules, etc.). Fallback heuristique si l'IA échoue. Renvoie '' si
+// aucun prénom exploitable (on n'insère alors rien).
+export async function extractFirstName(fullName: string): Promise<string> {
+  const raw = (fullName || '').trim()
+  if (!raw) return ''
+  const fallback = heuristicFirstName(raw)
+  try {
+    const prompt = `Voici le nom affiché d'une personne sur LinkedIn : "${raw}".
+Renvoie UNIQUEMENT son prénom, correctement capitalisé (ex: "Jean-Marc", "Léa"), sans titre, sans nom de famille, sans emoji, sans texte autour.
+Si tu ne peux pas déterminer un prénom humain fiable, renvoie exactement: NONE`
+    const result = await model.generateContent(prompt)
+    const out = result.response.text().trim().replace(/["“”.]/g, '').trim()
+    if (!out || /^none$/i.test(out) || out.length > 40 || /\s{2,}/.test(out)) return fallback
+    // garde-fou : un prénom = 1 token (ou composé avec tiret), lettres uniquement
+    if (!/^[\p{L}][\p{L}'’-]*$/u.test(out)) return fallback
+    return out
+  } catch {
+    return fallback
+  }
+}
+
 export async function scoreConversation(
   contactName: string,
   messages: Array<{ text: string; is_sender: boolean; created_at: string }>
