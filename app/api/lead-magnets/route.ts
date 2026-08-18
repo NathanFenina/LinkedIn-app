@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { extractPostIdFromUrl } from '@/lib/unipile'
-import { getActiveAccount, getActiveAccountRowId, scopeQueryToAccount } from '@/lib/account'
+import { extractPostIdFromUrl, resolvePostSocialId } from '@/lib/unipile'
+import { getActiveAccount, getActiveAccountId, getActiveAccountRowId, scopeQueryToAccount } from '@/lib/account'
 
 export async function GET() {
   try {
@@ -32,7 +32,11 @@ export async function POST(request: Request) {
   }
   try {
     const db = getServerSupabase()
-    const social_id = extractPostIdFromUrl(post_url)
+    // Résout directement le social_id canonique (urn:li:activity:...) via getPost.
+    // Fallback sur l'extraction brute si l'API échoue — le run/cron re-résoudra.
+    const social_id = await getActiveAccountId()
+      .then((accId) => resolvePostSocialId(accId, null, post_url))
+      .catch(() => extractPostIdFromUrl(post_url))
     const accountRowId = await getActiveAccountRowId().catch(() => null)
     const { data, error } = await db
       .from('lead_magnet_campaigns')

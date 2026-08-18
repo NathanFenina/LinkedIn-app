@@ -15,7 +15,7 @@
 //                          en pause (active=false) coupe l'envoi au prochain tour.
 
 import { getServerSupabase } from '@/lib/supabase'
-import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
+import { getPostComments, startNewChat, normalizeComment, resolvePostSocialId } from '@/lib/unipile'
 import { guard } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
 
@@ -84,22 +84,13 @@ async function sendOne(
     const ACCOUNT_ID = await resolveAccountId(db, campaign.linkedin_account_id)
     if (!ACCOUNT_ID) continue
 
-    let socialId = campaign.social_id
-    if (!socialId) {
-      const extracted = extractPostIdFromUrl(campaign.post_url)
-      if (extracted) {
-        try {
-          const post = await getPost(ACCOUNT_ID, extracted)
-          socialId = post.social_id || extracted
-        } catch {
-          socialId = extracted
-        }
-        if (socialId) {
-          await db.from('lead_magnet_campaigns').update({ social_id: socialId }).eq('id', campaign.id)
-        }
-      }
-    }
+    // Résout le social_id CANONIQUE (urn:li:activity:...) et ré-écrit en base si
+    // le stocké était un share (numéro différent → 0 commentaire).
+    const socialId = await resolvePostSocialId(ACCOUNT_ID, campaign.social_id, campaign.post_url)
     if (!socialId) continue
+    if (socialId !== campaign.social_id) {
+      await db.from('lead_magnet_campaigns').update({ social_id: socialId }).eq('id', campaign.id)
+    }
 
     const { data: alreadySent } = await db
       .from('lead_magnet_sends')

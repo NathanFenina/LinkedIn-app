@@ -492,6 +492,27 @@ export function extractPostIdFromUrl(url: string): string | null {
   return null
 }
 
+// Résout le social_id CANONIQUE d'un post — un `urn:li:activity:<id>`, la SEULE
+// forme que l'API commentaires accepte. Piège : une URL /posts/...-share-<id>
+// porte un numéro DIFFÉRENT de l'activity (ex: share 749...907712 ≠ activity
+// 749...716098). On passe donc toujours par getPost (source de vérité) sauf si
+// on a déjà un urn:li:activity en cache. Renvoie null si rien d'exploitable.
+export async function resolvePostSocialId(
+  accountId: string,
+  storedSocialId: string | null,
+  postUrl: string
+): Promise<string | null> {
+  if (storedSocialId && storedSocialId.startsWith('urn:li:activity:')) return storedSocialId
+  const extracted = extractPostIdFromUrl(postUrl)
+  if (!extracted) return storedSocialId
+  try {
+    const post = await getPost(accountId, extracted)
+    return post.social_id || extracted
+  } catch {
+    return storedSocialId || extracted
+  }
+}
+
 // Raw types matching the actual Unipile API response
 export interface RawChat {
   id: string

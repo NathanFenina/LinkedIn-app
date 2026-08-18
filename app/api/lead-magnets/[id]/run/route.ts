@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { getPost, getPostComments, startNewChat, extractPostIdFromUrl, normalizeComment } from '@/lib/unipile'
+import { getPostComments, startNewChat, normalizeComment, resolvePostSocialId } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
 import { guard } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
@@ -41,31 +41,15 @@ export async function POST(
 
     const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
 
-    // Re-extract if missing or if stored social_id looks stale (raw numeric for
-    // a share/ugcPost URL — legacy rows from before the URN fix).
-    const looksStale = (stored: string | null, url: string): boolean => {
-      if (!stored) return true
-      if (stored.startsWith('urn:li:')) return false
-      return /\/(posts)\//i.test(url) && /(share|ugcPost)/i.test(url)
-    }
-
-    let socialId = campaign.social_id
-    if (looksStale(socialId, campaign.post_url)) {
-      const extracted = extractPostIdFromUrl(campaign.post_url)
-      if (extracted) {
-        try {
-          const post = await getPost(ACCOUNT_ID, extracted)
-          socialId = post.social_id || extracted
-        } catch {
-          socialId = extracted
-        }
-      }
-      if (socialId) {
-        await db.from('lead_magnet_campaigns').update({ social_id: socialId }).eq('id', id)
-      }
-    }
+    // Résout le social_id CANONIQUE (urn:li:activity:...). Un social_id stocké
+    // en urn:li:share:... (numéro différent de l'activity) renvoie 0 commentaire,
+    // donc on re-résout via getPost et on ré-écrit le bon en base.
+    const socialId = await resolvePostSocialId(ACCOUNT_ID, campaign.social_id, campaign.post_url)
     if (!socialId) {
       return Response.json({ error: 'Impossible d\'extraire le social_id du post' }, { status: 400 })
+    }
+    if (socialId !== campaign.social_id) {
+      await db.from('lead_magnet_campaigns').update({ social_id: socialId }).eq('id', id)
     }
 
     // Already-processed commenters (anti-doublon)
