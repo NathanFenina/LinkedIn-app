@@ -213,7 +213,18 @@ export default function OutreachPage() {
       const data = await res.json()
       if (data.error) setMsg(`⚠️ ${data.error}`)
       else {
-        setMsg(data.message || 'Session lancée ✅ — reviens dans quelques minutes, la file se vide.')
+        // Garde-fou plage horaire : si on est hors fenêtre, le cron n'enverra
+        // rien tant qu'on n'est pas revenu dedans → on prévient tout de suite.
+        const parisH = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false }).format(new Date())) % 24
+        const hs = Number(sHourStart), he = Number(sHourEnd)
+        const inWindow = hs <= he ? parisH >= hs && parisH < he : parisH >= hs || parisH < he
+        setMsg(
+          inWindow
+            ? (data.message || 'Session lancée ✅ — reviens dans quelques minutes, la file se vide.')
+            : `Session lancée, mais il est ${parisH}h à Paris et ta plage d'envoi est ${hs}h-${he}h → aucun message ne partira avant ${hs}h. Élargis la plage dans les réglages si tu veux envoyer maintenant.`
+        )
+        // La campagne est réactivée côté serveur → on le reflète tout de suite.
+        setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, active: true } : c)))
         // Affiche l'état "en cours" tout de suite, puis re-synchronise avec GitHub.
         setPubStatus({ available: true, status: 'in_progress' })
         setTimeout(() => fetchPubStatus(), 6000)

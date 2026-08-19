@@ -1,9 +1,15 @@
+import { getServerSupabase } from '@/lib/supabase'
 import { errMsg } from '@/lib/utils'
 
 // Lance la SESSION d'envoi outbound (poste les msg1/relances de la file, un par
 // un, espacés 4-6 min) sans ouvrir GitHub : déclenche le workflow via l'API.
-// Nécessite GITHUB_TOKEN (Actions: Read and write) dans l'env.
-export async function POST() {
+// Réactive la campagne au passage (le cron n'avance QUE les campagnes actives,
+// donc lancer une campagne en pause ne ferait rien). Nécessite GITHUB_TOKEN.
+export async function POST(
+  _request: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params
   const token = process.env.GITHUB_TOKEN
   const repo = process.env.GITHUB_REPO || 'NathanFenina/LinkedIn-app'
   const workflow = process.env.GITHUB_OUTREACH_WORKFLOW || 'cron-outreach.yml'
@@ -19,6 +25,11 @@ export async function POST() {
     )
   }
   try {
+    // Réactive la campagne : "Lancer l'envoi" doit repartir même si elle était
+    // en pause (sinon le cron, qui filtre active=true, ne l'avancerait pas).
+    const db = getServerSupabase()
+    await db.from('outreach_campaigns').update({ active: true }).eq('id', id)
+
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
       method: 'POST',
       headers: {
