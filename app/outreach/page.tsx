@@ -46,6 +46,7 @@ export default function OutreachPage() {
   const [filter, setFilter] = useState('')
   const [foundersOnly, setFoundersOnly] = useState(false)
   const [hideProviders, setHideProviders] = useState(false)
+  const [pubStatus, setPubStatus] = useState<{ status?: string; conclusion?: string | null; started_at?: string; html_url?: string; available?: boolean; none?: boolean } | null>(null)
 
   // create form
   const [name, setName] = useState('')
@@ -85,8 +86,22 @@ export default function OutreachPage() {
     }
   }, [])
 
-  useEffect(() => { fetchCampaigns() }, [fetchCampaigns])
+  const fetchPubStatus = useCallback(async () => {
+    const d = await fetch('/api/outreach/publish-status').then((r) => r.json()).catch(() => null)
+    setPubStatus(d)
+  }, [])
+
+  useEffect(() => { fetchCampaigns(); fetchPubStatus() }, [fetchCampaigns, fetchPubStatus])
   useEffect(() => { if (selected) loadTargets(selected) }, [selected, loadTargets])
+
+  // Tant qu'une session tourne, on rafraîchit l'état + les compteurs toutes les
+  // 20s pour voir la file se vider en direct.
+  const sessionRunning = !!pubStatus?.available && !!pubStatus.status && pubStatus.status !== 'completed' && !pubStatus.none
+  useEffect(() => {
+    if (!sessionRunning) return
+    const t = setInterval(() => { fetchPubStatus(); fetchCampaigns(); if (selected) loadTargets(selected) }, 20000)
+    return () => clearInterval(t)
+  }, [sessionRunning, fetchPubStatus, fetchCampaigns, loadTargets, selected])
 
   async function createCampaign(e: React.FormEvent) {
     e.preventDefault(); setBusy('create'); setMsg('')
@@ -197,7 +212,12 @@ export default function OutreachPage() {
       const res = await fetch(`/api/outreach/${id}/publish`, { method: 'POST' })
       const data = await res.json()
       if (data.error) setMsg(`⚠️ ${data.error}`)
-      else setMsg(data.message || 'Session lancée ✅ — reviens dans quelques minutes, la file se vide.')
+      else {
+        setMsg(data.message || 'Session lancée ✅ — reviens dans quelques minutes, la file se vide.')
+        // Affiche l'état "en cours" tout de suite, puis re-synchronise avec GitHub.
+        setPubStatus({ available: true, status: 'in_progress' })
+        setTimeout(() => fetchPubStatus(), 6000)
+      }
     } catch (err) { setMsg('Erreur : ' + errMsg(err)) } finally { setBusy(null) }
   }
 
@@ -361,6 +381,44 @@ export default function OutreachPage() {
                 </button>
                 <button onClick={() => remove(current.id)} className="p-1.5 rounded-lg border border-gray-300 hover:bg-red-50 text-red-500"><Trash2 className="w-4 h-4" /></button>
               </div>
+
+              {/* État de la session d'envoi (GitHub Actions) — pour savoir si ça tourne */}
+              {pubStatus?.available && !pubStatus.none && pubStatus.status && (
+                <div
+                  className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 border ${
+                    sessionRunning
+                      ? 'bg-blue-50 border-blue-200 text-blue-800'
+                      : pubStatus.conclusion === 'failure'
+                        ? 'bg-red-50 border-red-200 text-red-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-600'
+                  }`}
+                >
+                  {sessionRunning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                      <span className="flex-1">
+                        <strong>Session d’envoi en cours</strong> — les messages partent un par un, espacés (4-6 min). Tu peux fermer l’onglet. Mets la campagne en <em>pause</em> (bouton <Power className="w-3 h-3 inline" />) pour couper au prochain tour.
+                      </span>
+                    </>
+                  ) : pubStatus.conclusion === 'failure' ? (
+                    <>
+                      <XCircle className="w-4 h-4 shrink-0" />
+                      <span className="flex-1">Dernière session en échec.</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span className="flex-1">
+                        Aucune session en cours. Dernière session <strong>terminée</strong>
+                        {pubStatus.started_at ? ` (${formatDistanceToNow(pubStatus.started_at)})` : ''}. Clique « Lancer l’envoi » pour (re)partir.
+                      </span>
+                    </>
+                  )}
+                  {pubStatus.html_url && (
+                    <a href={pubStatus.html_url} target="_blank" rel="noopener noreferrer" className="underline shrink-0 text-xs">journal</a>
+                  )}
+                </div>
+              )}
 
               {/* Réglages inline : LE message pour tous + délais */}
               <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">

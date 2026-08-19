@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { CommentCampaign, CommentSend } from '@/types'
-import { Plus, Play, Trash2, Sparkles, Power, Users, MessageCircle, ExternalLink, X, Pencil, CheckCircle2, Zap, FileText, AlertCircle, Loader2, Radio, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Plus, Play, Trash2, Sparkles, Power, Users, MessageCircle, ExternalLink, X, Pencil, CheckCircle2, Zap, FileText, AlertCircle, Loader2, Radio, ThumbsUp, ThumbsDown, Square } from 'lucide-react'
 import { formatDistanceToNow } from '@/lib/utils'
 
 function startOfTodayISO() {
@@ -182,6 +182,22 @@ export default function CommentsPage() {
     else setMsg(data.message || 'Session lancée ✅. Les commentaires vont partir espacés — reviens dans quelques minutes.')
   }
 
+  // Arrête la session de publication en cours (annule le run GitHub Actions).
+  // Ne désactive PAS les campagnes → l'auto quotidien reste programmé.
+  const stopSession = async () => {
+    if (!confirm('Arrêter la session de publication en cours ? Les commentaires déjà postés restent, mais l\'envoi s\'arrête. L\'auto quotidien reste actif.')) return
+    setMsg('Arrêt de la session…')
+    try {
+      const res = await fetch('/api/comment-campaigns/publish-stop', { method: 'POST' })
+      const data = await res.json()
+      if (data.error) setMsg(`⚠️ ${data.error}`)
+      else setMsg(data.message || 'Session arrêtée.')
+      setTimeout(() => loadPubStatus(), 3000)
+    } catch {
+      setMsg('Erreur lors de l\'arrêt.')
+    }
+  }
+
   const saveDraft = async (campaignId: string, sendId: string, text: string) => {
     await fetch(`/api/comment-sends/${sendId}`, {
       method: 'PATCH',
@@ -291,24 +307,36 @@ export default function CommentsPage() {
           </div>
         )}
 
-        {pubStatus?.available && pubStatus.status && !pubStatus.none && (
-          <a href={pubStatus.html_url || '#'} target="_blank" rel="noopener noreferrer"
-            className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 border ${
-              pubStatus.status === 'in_progress' || pubStatus.status === 'queued'
-                ? 'bg-green-50 border-green-200 text-green-800'
-                : pubStatus.conclusion === 'success'
-                  ? 'bg-gray-50 border-gray-200 text-gray-600'
-                  : 'bg-amber-50 border-amber-200 text-amber-800'
-            }`}>
-            {pubStatus.status === 'in_progress' || pubStatus.status === 'queued' ? (
-              <><Loader2 className="w-4 h-4 shrink-0 animate-spin" /> <span className="flex-1">Session de publication <strong>en cours</strong> — les commentaires partent un par un, espacés. Le compteur « Postés aujourd&apos;hui » monte tout seul.</span></>
-            ) : pubStatus.conclusion === 'success' ? (
-              <><CheckCircle2 className="w-4 h-4 shrink-0" /> <span className="flex-1">Dernière session <strong>terminée</strong>. Relance « Publier tout » s&apos;il reste des brouillons.</span></>
-            ) : (
-              <><AlertCircle className="w-4 h-4 shrink-0" /> <span className="flex-1">Dernière session en échec — clique pour voir le log GitHub.</span></>
-            )}
-          </a>
-        )}
+        {pubStatus?.available && pubStatus.status && !pubStatus.none && (() => {
+          const isRunning = pubStatus.status === 'in_progress' || pubStatus.status === 'queued'
+          return (
+            <div
+              className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 border ${
+                isRunning
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : pubStatus.conclusion === 'success'
+                    ? 'bg-gray-50 border-gray-200 text-gray-600'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}>
+              {isRunning ? (
+                <><Loader2 className="w-4 h-4 shrink-0 animate-spin" /> <span className="flex-1">Session de publication <strong>en cours</strong> — les commentaires partent un par un, espacés. Le compteur « Postés aujourd&apos;hui » monte tout seul.</span></>
+              ) : pubStatus.conclusion === 'success' ? (
+                <><CheckCircle2 className="w-4 h-4 shrink-0" /> <span className="flex-1">Dernière session <strong>terminée</strong>. Relance « Publier tout » s&apos;il reste des brouillons.</span></>
+              ) : (
+                <><AlertCircle className="w-4 h-4 shrink-0" /> <span className="flex-1">Dernière session en échec.</span></>
+              )}
+              {isRunning && (
+                <button onClick={stopSession}
+                  className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white border border-red-200 text-red-600 hover:bg-red-50 font-medium">
+                  <Square className="w-3 h-3" /> Arrêter
+                </button>
+              )}
+              {pubStatus.html_url && (
+                <a href={pubStatus.html_url} target="_blank" rel="noopener noreferrer" className="shrink-0 underline">journal</a>
+              )}
+            </div>
+          )
+        })()}
 
         {showForm && (
           <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-3 shadow-sm">
