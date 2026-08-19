@@ -207,35 +207,55 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
 
   const accountId = await accountFor(db, campaign.linkedin_account_id)
 
-  // Priorité 1 : follow-ups dus.
+  // Priorité 1 : relances dues. RÈGLE ABSOLUE — jamais de relance à quelqu'un
+  // qui a répondu. On purge d'abord toutes les relances "répondu" (statut
+  // 'replied'), puis on envoie la 1re relance vraiment légitime. Boucle bornée
+  // pour éviter tout emballement.
   if (campaign.msg2) {
-    const { data: due } = await db
-      .from('outreach_targets')
-      .select('*')
-      .eq('campaign_id', campaign.id)
-      .eq('status', 'msg1_sent')
-      .lte('next_action_at', new Date().toISOString())
-      .order('next_action_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    if (due) {
-      // Répondu ? → stop.
-      if (due.chat_id) {
-        try {
-          const msgs = await getChatMessages(due.chat_id, 5)
-          const last = msgs[0]
-          if (last && !(last.is_sender === 1 || last.is_sender === true)) {
-            await db.from('outreach_targets').update({ status: 'replied' }).eq('id', due.id)
-            return { sent: 0, step: 'stop-reply', target: due.name }
-          }
-        } catch { /* on tente le follow-up quand même */ }
+    for (let i = 0; i < 200; i++) {
+      const { data: due } = await db
+        .from('outreach_targets')
+        .select('*')
+        .eq('campaign_id', campaign.id)
+        .eq('status', 'msg1_sent')
+        .lte('next_action_at', new Date().toISOString())
+        .order('next_action_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (!due) break // plus aucune relance due
+
+      // Sans fil de conversation connu, impossible de vérifier une réponse ni de
+      // continuer le bon thread → on clôt la séquence sans relancer (par sécurité,
+      // on ne crée pas un nouveau message "à froid" en guise de relance).
+      if (!due.chat_id) {
+        await db.from('outreach_targets').update({ status: 'done' }).eq('id', due.id)
+        continue
       }
+
+      // Répondu ? On considère "répondu" dès qu'il existe LE MOINDRE message
+      // entrant dans le fil (indépendant de l'ordre renvoyé par l'API).
+      let replied = false
+      try {
+        const msgs = await getChatMessages(due.chat_id, 15)
+        replied = msgs.some((m) => !(m.is_sender === 1 || m.is_sender === true))
+      } catch {
+        // Lecture impossible (erreur transitoire) : on NE prend PAS le risque de
+        // relancer quelqu'un qui aurait répondu. On laisse la cible en
+        // 'msg1_sent' (réessai au prochain tour) et on sort des relances pour
+        // tenter un 1er message à la place — pas d'emballement sur cette cible.
+        break
+      }
+      if (replied) {
+        await db.from('outreach_targets').update({ status: 'replied' }).eq('id', due.id)
+        continue // on ne relance pas — cible suivante
+      }
+
+      // Relance légitime (aucune réponse) → on envoie.
       const g = await guard(db, accountId, 'dm')
       if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
       try {
         const text = personalize(campaign.msg2, due.name)
-        if (due.chat_id) await sendMessage(due.chat_id, text)
-        else await startNewChat(accountId, due.provider_id!, text)
+        await sendMessage(due.chat_id, text)
         // 'msg2_sent' = relance envoyée, séquence terminée (statut distinct de
         // 'done' pour que tu voies dans le Suivi qui a reçu 1 vs 2 messages).
         await db.from('outreach_targets').update({ status: 'msg2_sent', last_sent_at: new Date().toISOString() }).eq('id', due.id)
