@@ -9,7 +9,7 @@ import {
 } from '@/lib/unipile'
 import { generateLinkedInComment } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
-import { guard } from '@/lib/limits'
+import { checkLimit, logAction } from '@/lib/limits'
 import type { CommentCampaign } from '@/types'
 
 type Db = ReturnType<typeof getServerSupabase>
@@ -252,71 +252,83 @@ export async function postNextDraft(db: Db, campaign: CommentCampaign): Promise<
     }
   }
 
-  const sent = await sentTodayCount(db, campaign.id)
-  // Fallback 30 (aligné sur la génération) : un daily_cap vide en base ne doit
-  // plus brider silencieusement le posting à 15.
-  const remainingCap = Math.max(0, (campaign.daily_cap || 30) - sent)
-
-  // Brouillons en attente.
-  const { count: pendingCount } = await db
-    .from('comment_sends')
-    .select('*', { count: 'exact', head: true })
-    .eq('campaign_id', campaign.id)
-    .eq('status', 'draft')
-
-  if (remainingCap <= 0) {
-    return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: `Plafond atteint (${sent}/${campaign.daily_cap || 30})` }
-  }
-
-  const { data: draft } = await db
-    .from('comment_sends')
-    .select('*')
-    .eq('campaign_id', campaign.id)
-    .eq('status', 'draft')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
-  if (!draft) {
-    return { posted: 0, pending: 0, remaining_today: remainingCap, skipped_reason: 'Aucun brouillon en attente' }
-  }
-
+  const cap = campaign.daily_cap || 30
   const ACCOUNT_ID = await resolveAccountIdForCampaign(db, campaign.linkedin_account_id)
 
-  // Garde-fou LinkedIn : blocage dur si plafond commentaires / global atteint.
-  const g = await guard(db, ACCOUNT_ID, 'comment')
-  if (!g.allowed) {
-    return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: g.reason }
-  }
+  // Boucle : un brouillon impossible à poster (post supprimé / inaccessible →
+  // Unipile 422) ne doit PAS arrêter la session. On le marque 'error' et on
+  // passe au brouillon suivant, jusqu'à en poster UN bon (ou plus rien à faire).
+  // Bornée pour éviter tout emballement.
+  for (let i = 0; i < 200; i++) {
+    // Fallback 30 (aligné sur la génération) : un daily_cap vide en base ne doit
+    // plus brider silencieusement le posting à 15.
+    const sent = await sentTodayCount(db, campaign.id)
+    const remainingCap = Math.max(0, cap - sent)
 
-  try {
-    await sendPostComment(ACCOUNT_ID, draft.post_social_id, draft.comment_text || '')
-    let liked = false
-    if (campaign.also_like) {
-      try {
-        await likePost(ACCOUNT_ID, draft.post_social_id)
-        liked = true
-      } catch {
-        /* like best-effort */
+    const { count: pendingCount } = await db
+      .from('comment_sends')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaign.id)
+      .eq('status', 'draft')
+
+    if (remainingCap <= 0) {
+      return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: `Plafond atteint (${sent}/${cap})` }
+    }
+
+    const { data: draft } = await db
+      .from('comment_sends')
+      .select('*')
+      .eq('campaign_id', campaign.id)
+      .eq('status', 'draft')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    if (!draft) {
+      return { posted: 0, pending: 0, remaining_today: remainingCap, skipped_reason: 'Aucun brouillon en attente' }
+    }
+
+    // Garde-fou LinkedIn en LECTURE SEULE : on ne consomme le quota commentaires
+    // que sur un post réussi (un brouillon mort ne doit pas brûler le quota).
+    const chk = await checkLimit(db, ACCOUNT_ID, 'comment')
+    if (!chk.allowed) {
+      return { posted: 0, pending: pendingCount || 0, remaining_today: 0, skipped_reason: chk.reason }
+    }
+
+    try {
+      await sendPostComment(ACCOUNT_ID, draft.post_social_id, draft.comment_text || '')
+      await logAction(db, ACCOUNT_ID, 'comment')
+      let liked = false
+      if (campaign.also_like) {
+        try {
+          await likePost(ACCOUNT_ID, draft.post_social_id)
+          liked = true
+        } catch {
+          /* like best-effort */
+        }
       }
-    }
-    await db
-      .from('comment_sends')
-      .update({ status: 'sent', liked, error: null })
-      .eq('id', draft.id)
-    await db.from('comment_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
+      await db
+        .from('comment_sends')
+        .update({ status: 'sent', liked, error: null })
+        .eq('id', draft.id)
+      await db.from('comment_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
 
-    const pendingLeft = Math.max(0, (pendingCount || 1) - 1)
-    return {
-      posted: 1,
-      pending: pendingLeft,
-      remaining_today: Math.min(pendingLeft, remainingCap - 1),
+      const pendingLeft = Math.max(0, (pendingCount || 1) - 1)
+      return {
+        posted: 1,
+        pending: pendingLeft,
+        remaining_today: Math.min(pendingLeft, remainingCap - 1),
+      }
+    } catch (err) {
+      // Post impossible (supprimé / inaccessible / ID erroné) : on marque le
+      // brouillon 'error' et on CONTINUE au suivant — la session ne s'arrête pas.
+      await db
+        .from('comment_sends')
+        .update({ status: 'error', error: String(err).slice(0, 300) })
+        .eq('id', draft.id)
+      continue
     }
-  } catch (err) {
-    await db
-      .from('comment_sends')
-      .update({ status: 'error', error: String(err).slice(0, 300) })
-      .eq('id', draft.id)
-    return { posted: 0, pending: Math.max(0, (pendingCount || 1) - 1), remaining_today: remainingCap, error: String(err) }
   }
+
+  return { posted: 0, pending: 0, remaining_today: 0, skipped_reason: 'Trop de brouillons en erreur d’affilée' }
 }
