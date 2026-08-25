@@ -179,7 +179,12 @@ export default function CommentsPage() {
     const data = await res.json()
     setBusyId(null)
     if (data.error) setMsg(`⚠️ ${data.error}`)
-    else setMsg(data.message || 'Session lancée ✅. Les commentaires vont partir espacés — reviens dans quelques minutes.')
+    else {
+      setMsg(data.message || 'Session lancée ✅. Les commentaires vont partir espacés — reviens dans quelques minutes.')
+      // La campagne est réactivée côté serveur → on le reflète tout de suite.
+      setCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, active: true } : c)))
+      setTimeout(() => loadPubStatus(), 4000)
+    }
   }
 
   // Arrête la session de publication en cours (annule le run GitHub Actions).

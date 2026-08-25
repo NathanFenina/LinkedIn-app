@@ -1,10 +1,16 @@
+import { getServerSupabase } from '@/lib/supabase'
 import { errMsg } from '@/lib/utils'
 
 // Lance la SESSION de publication (poste les brouillons restants un par un,
 // espacés) sans que l'utilisateur ait à ouvrir GitHub : on déclenche le workflow
-// GitHub Actions via l'API (workflow_dispatch). Nécessite un token GitHub dans
-// l'env (GITHUB_TOKEN) avec la permission "actions:write" sur le repo.
-export async function POST() {
+// GitHub Actions via l'API (workflow_dispatch). Réactive la campagne au passage
+// (la session ne poste QUE pour les campagnes actives, donc publier une campagne
+// en pause ne ferait rien). Nécessite GITHUB_TOKEN (Actions: Read and write).
+export async function POST(
+  _request: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const { id } = await ctx.params
   const token = process.env.GITHUB_TOKEN
   const repo = process.env.GITHUB_REPO || 'NathanFenina/LinkedIn-app'
   const workflow = process.env.GITHUB_COMMENTS_WORKFLOW || 'cron-comments.yml'
@@ -21,6 +27,11 @@ export async function POST() {
   }
 
   try {
+    // Réactive la campagne : "Publier tout" doit poster même si elle était en
+    // pause (sinon la session, qui filtre active=true, ne la traiterait pas).
+    const db = getServerSupabase()
+    await db.from('comment_campaigns').update({ active: true }).eq('id', id)
+
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
       method: 'POST',
       headers: {
