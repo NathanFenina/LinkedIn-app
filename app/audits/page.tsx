@@ -11,6 +11,7 @@ interface Candidate {
   profile_url: string | null
   location: string | null
   connected?: boolean
+  recommended?: boolean
   score: number
 }
 
@@ -268,21 +269,34 @@ export default function AuditsPage() {
                   {/* Candidates */}
                   {cands && cands.length > 0 && (
                     <div className="mt-2 bg-gray-50 rounded p-2 space-y-1">
-                      <p className="text-[11px] font-medium text-gray-700">Choisis le bon contact :</p>
+                      <p className="text-[11px] font-medium text-gray-700">Choisis le bon contact <span className="text-gray-400 font-normal">— ★ = mon choix recommandé</span> :</p>
                       {cands.map((c, i) => (
-                        <button key={i} onClick={() => pickContact(t.id, c)} className="w-full text-left flex items-start gap-2 text-[11px] px-2 py-1.5 rounded hover:bg-blue-50 border border-transparent hover:border-blue-200">
-                          <Check className="w-3 h-3 mt-0.5 text-blue-500 shrink-0" />
-                          <span className="min-w-0">
-                            <span className="font-medium text-gray-800">{c.name || 'Sans nom'}</span>
-                            {c.connected ? (
-                              <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-green-100 text-green-700">connecté · DM ok</span>
-                            ) : (
-                              <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-amber-100 text-amber-700">non connecté</span>
-                            )}
-                            {c.headline ? <span className="text-gray-500"> — {c.headline}</span> : null}
-                            {c.location ? <span className="text-gray-400"> · {c.location}</span> : null}
-                          </span>
-                        </button>
+                        <div
+                          key={i}
+                          className={`flex items-start gap-2 text-[11px] px-2 py-1.5 rounded border ${
+                            c.recommended ? 'bg-green-50 border-green-300' : 'border-transparent hover:bg-blue-50 hover:border-blue-200'
+                          }`}
+                        >
+                          <button onClick={() => pickContact(t.id, c)} className="text-left flex items-start gap-2 min-w-0 flex-1" title="Choisir ce contact">
+                            {c.recommended ? <span className="text-yellow-500 mt-0.5 shrink-0">★</span> : <Check className="w-3 h-3 mt-0.5 text-blue-500 shrink-0" />}
+                            <span className="min-w-0">
+                              <span className={`font-medium ${c.recommended ? 'text-green-800' : 'text-gray-800'}`}>{c.name || 'Sans nom'}</span>
+                              {c.recommended && <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-green-200 text-green-800 font-semibold">recommandé</span>}
+                              {c.connected ? (
+                                <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-green-100 text-green-700">connecté · DM ok</span>
+                              ) : (
+                                <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-amber-100 text-amber-700">non connecté</span>
+                              )}
+                              {c.headline ? <span className="text-gray-500"> — {c.headline}</span> : null}
+                              {c.location ? <span className="text-gray-400"> · {c.location}</span> : null}
+                            </span>
+                          </button>
+                          {c.profile_url && (
+                            <a href={c.profile_url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-blue-600 hover:underline inline-flex items-center gap-0.5" title="Ouvrir le profil LinkedIn">
+                              profil <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}

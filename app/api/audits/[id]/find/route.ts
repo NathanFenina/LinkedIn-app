@@ -29,14 +29,21 @@ const ROLE_WEIGHTS: Array<[RegExp, number]> = [
   [/chief marketing|cmo\b/i, 10],
   [/directeur marketing|directrice marketing|marketing director/i, 9],
   [/head of marketing|responsable marketing|vp marketing/i, 8],
-  [/head of growth|growth|acquisition/i, 6],
+  [/head of (digital )?acquisition|head of growth/i, 7],
+  [/growth|acquisition/i, 6],
   [/e-?commerce|digital|brand/i, 5],
   [/marketing/i, 4],
-  [/founder|fondat|ceo|co-?founder/i, 3],
+  [/founder|fondat|\bceo\b|co-?founder|dirigeant/i, 3],
 ]
+
+// Postes à ÉVITER pour un audit GEO externe :
+// - SEO/SEA/GEO en interne (territoriaux : ils verront l'audit comme une menace)
+// - opérationnel/trade, commercial terrain, hors-sujet total
+const AVOID = /charg[ée]\s*(de\s*)?(seo|sea|sem|geo|référenc|traffic)|\b(seo|sea|sem|geo)\b.*(charg[ée]|specialist|consultant|manager)|traffic manager|trade marketing|marketing op[ée]rationnel|d[ée]l[ée]gu[ée] pharmac|commercial|vente terrain|\bmma\b|athl[èe]te|combattant/i
 
 function scoreHeadline(headline: string | null): number {
   if (!headline) return 0
+  if (AVOID.test(headline)) return 1 // très bas, mais reste listé
   let best = 0
   for (const [re, w] of ROLE_WEIGHTS) if (re.test(headline)) best = Math.max(best, w)
   return best
@@ -99,7 +106,16 @@ export async function POST(
     // d) dernier recours : juste le nom de la boîte
     await trySearch('kw-name', { category: 'people', keywords: target.company, limit: 15 })
 
-    const contacts = items
+    const contacts: Array<{
+      provider_id: string | null
+      name: string | null
+      headline: string | null
+      profile_url: string | null
+      location: string | null
+      connected: boolean
+      score: number
+      recommended?: boolean
+    }> = items
       .map((p) => ({
         provider_id: p.provider_id || p.id || null,
         name: p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
@@ -112,6 +128,10 @@ export async function POST(
       .filter((c) => c.provider_id)
       // Meilleur poste marketing d'abord, puis relations directes en tête.
       .sort((a, b) => b.score - a.score || Number(b.connected) - Number(a.connected))
+
+    // Le meilleur candidat est "recommandé" s'il est un vrai décideur
+    // marketing/acquisition (score suffisant), pas un lot de repêchage.
+    if (contacts.length && contacts[0].score >= 6) contacts[0].recommended = true
 
     return Response.json({
       company: target.company,
