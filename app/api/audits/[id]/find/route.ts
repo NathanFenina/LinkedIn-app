@@ -12,11 +12,17 @@ interface RawPerson {
   profile_url?: string
   picture_url?: string
   location?: string
+  network_distance?: string
+  connection_degree?: string
 }
 
-// Cible marketing par défaut, fallback fondateur. FR + EN.
-const DEFAULT_ROLE =
-  'Directeur Marketing OR Directrice Marketing OR Responsable Marketing OR CMO OR "Head of Marketing" OR "VP Marketing" OR "Chief Marketing Officer" OR Marketing OR Growth OR Acquisition OR "E-commerce" OR Fondateur OR Founder OR CEO'
+// Renvoie true si la personne est en relation directe (1er niveau) — un DM
+// classique ne fonctionne que dans ce cas. Unipile utilise des libellés
+// variables selon l'API ; on couvre les formes connues.
+function isFirstDegree(p: RawPerson): boolean {
+  const v = `${p.network_distance || ''} ${p.connection_degree || ''}`.toUpperCase()
+  return /DISTANCE_1|FIRST|\b1(ST)?\b|1ER/.test(v)
+}
 
 // Priorité de scoring des intitulés (plus haut = mieux).
 const ROLE_WEIGHTS: Array<[RegExp, number]> = [
@@ -42,8 +48,9 @@ export async function POST(
 ) {
   const { id } = await ctx.params
   const body = await request.json().catch(() => ({}))
-  const role: string = (body.role || DEFAULT_ROLE).trim()
-  const limit: number = Math.min(Math.max(Number(body.limit) || 10, 1), 25)
+  // Mot-clé COURT (sans guillemets ni longue liste OR : la recherche classique
+  // LinkedIn via Unipile renvoie 0 sur les booléens trop complexes).
+  const role: string = (body.role || 'marketing').trim()
 
   try {
     const db = getServerSupabase()
@@ -63,16 +70,34 @@ export async function POST(
       }
     } catch { /* fallback keyword */ }
 
-    // 2) Recherche des personnes : filtre entreprise si dispo, sinon mot-clé.
-    const searchOpts: Parameters<typeof searchLinkedIn>[1] = {
-      category: 'people',
-      keywords: role,
-      limit,
+    // 2) Recherche des personnes, avec plusieurs tentatives (fallbacks) car la
+    // recherche classique LinkedIn est capricieuse.
+    const attempts: string[] = []
+    let items: RawPerson[] = []
+    const trySearch = async (
+      label: string,
+      opts: Parameters<typeof searchLinkedIn>[1]
+    ) => {
+      if (items.length) return
+      try {
+        const r = await searchLinkedIn<RawPerson>(ACCOUNT_ID, opts)
+        attempts.push(`${label}: ${r.items.length}`)
+        if (r.items.length) items = r.items
+      } catch (e) {
+        attempts.push(`${label}: err ${String(e).slice(0, 60)}`)
+      }
     }
-    if (companyId) searchOpts.extra = { company: [companyId] }
-    else searchOpts.keywords = `${role} ${target.company}`
 
-    const { items } = await searchLinkedIn<RawPerson>(ACCOUNT_ID, searchOpts)
+    if (companyId) {
+      // a) employés de la boîte filtrés sur "marketing"
+      await trySearch('company+kw', { category: 'people', keywords: role, limit: 25, extra: { company: [companyId] } })
+      // b) tous les employés de la boîte (on classe par poste ensuite)
+      await trySearch('company', { category: 'people', limit: 25, extra: { company: [companyId] } })
+    }
+    // c) fallback pur mot-clé "Boîte marketing"
+    await trySearch('kw', { category: 'people', keywords: `${target.company} ${role}`, limit: 15 })
+    // d) dernier recours : juste le nom de la boîte
+    await trySearch('kw-name', { category: 'people', keywords: target.company, limit: 15 })
 
     const contacts = items
       .map((p) => ({
@@ -81,20 +106,25 @@ export async function POST(
         headline: p.headline || null,
         profile_url: p.profile_url || null,
         location: p.location || null,
+        connected: isFirstDegree(p),
         score: scoreHeadline(p.headline || null),
       }))
       .filter((c) => c.provider_id)
-      // Meilleur poste marketing d'abord.
-      .sort((a, b) => b.score - a.score)
+      // Meilleur poste marketing d'abord, puis relations directes en tête.
+      .sort((a, b) => b.score - a.score || Number(b.connected) - Number(a.connected))
 
     return Response.json({
       company: target.company,
       company_matched: companyMatched,
       company_id_used: companyId,
-      contacts: contacts.slice(0, 8),
-      hint: companyId
-        ? null
-        : "Société non trouvée dans l'index LinkedIn — résultats par mot-clé, moins précis.",
+      attempts,
+      contacts: contacts.slice(0, 10),
+      hint:
+        contacts.length === 0
+          ? `Aucun résultat (${attempts.join(' · ')}). ${companyId ? '' : "Société non trouvée dans l'index LinkedIn."}`.trim()
+          : companyId
+            ? null
+            : "Société non trouvée dans l'index LinkedIn — résultats par mot-clé, moins précis.",
     })
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })

@@ -10,6 +10,7 @@ interface Candidate {
   headline: string | null
   profile_url: string | null
   location: string | null
+  connected?: boolean
   score: number
 }
 
@@ -114,8 +115,9 @@ export default function AuditsPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setCandidates((prev) => ({ ...prev, [id]: data.contacts || [] }))
-      if (!data.contacts?.length) setMsg(`Aucun contact trouvé pour cette boîte${data.hint ? ' — ' + data.hint : ''}.`)
+      if (!data.contacts?.length) setMsg(data.hint || 'Aucun contact trouvé pour cette boîte.')
       else if (data.hint) setMsg(data.hint)
+      else setMsg('')
     } catch (err) {
       setMsg(`Erreur: ${String(err)}`)
     } finally {
@@ -272,6 +274,11 @@ export default function AuditsPage() {
                           <Check className="w-3 h-3 mt-0.5 text-blue-500 shrink-0" />
                           <span className="min-w-0">
                             <span className="font-medium text-gray-800">{c.name || 'Sans nom'}</span>
+                            {c.connected ? (
+                              <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-green-100 text-green-700">connecté · DM ok</span>
+                            ) : (
+                              <span className="ml-1 text-[9px] px-1 py-0.5 rounded-full bg-amber-100 text-amber-700">non connecté</span>
+                            )}
                             {c.headline ? <span className="text-gray-500"> — {c.headline}</span> : null}
                             {c.location ? <span className="text-gray-400"> · {c.location}</span> : null}
                           </span>
