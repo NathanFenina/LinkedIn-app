@@ -118,6 +118,23 @@ export interface LeadMagnetCampaign {
   failed_count?: number
 }
 
+// Audits ciblés — envoi manuel d'audits GEO à une liste d'entreprises nommées.
+export interface AuditTarget {
+  id: string
+  company: string
+  audit_url: string | null
+  provider_id: string | null
+  contact_name: string | null
+  contact_headline: string | null
+  contact_profile_url: string | null
+  status: 'pending' | 'found' | 'sent' | 'error' | 'skipped'
+  message_sent: string | null
+  error: string | null
+  linkedin_account_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Feature 7 — séquenceur outbound
 export interface OutreachCampaign {
   id: string
