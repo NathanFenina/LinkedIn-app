@@ -18,19 +18,25 @@ export async function GET() {
     const campaigns = data || []
     const withCounts = await Promise.all(
       campaigns.map(async (c: { id: string }) => {
-        const [{ count: sentCount }, { count: failedCount }] = await Promise.all([
+        const [{ count: sentCount }, { count: failedCount }, { count: invitedCount }] = await Promise.all([
           db
             .from('lead_magnet_sends')
             .select('id', { count: 'exact', head: true })
             .eq('campaign_id', c.id)
-            .not('message_sent', 'ilike', '[ÉCHEC]%'),
+            .not('message_sent', 'ilike', '[ÉCHEC]%')
+            .not('message_sent', 'ilike', '[INVITÉ]%'),
           db
             .from('lead_magnet_sends')
             .select('id', { count: 'exact', head: true })
             .eq('campaign_id', c.id)
             .ilike('message_sent', '[ÉCHEC]%'),
+          db
+            .from('lead_magnet_sends')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', c.id)
+            .ilike('message_sent', '[INVITÉ]%'),
         ])
-        return { ...c, sent_count: sentCount || 0, failed_count: failedCount || 0 }
+        return { ...c, sent_count: sentCount || 0, failed_count: failedCount || 0, invited_count: invitedCount || 0 }
       })
     )
     return Response.json(withCounts)
@@ -46,6 +52,10 @@ export async function POST(request: Request) {
   const auto_run = !!body.auto_run
   const followup_message = body.followup_message?.trim() || null
   const followup_business_days = Math.max(1, Number(body.followup_business_days) || 2)
+  const reply_to_comment = !!body.reply_to_comment
+  const comment_reply = body.comment_reply?.trim() || null
+  const invite_on_fail = !!body.invite_on_fail
+  const invite_note = body.invite_note?.trim() || null
 
   if (!name?.trim() || !post_url?.trim() || !message_template?.trim()) {
     return Response.json(
@@ -74,6 +84,10 @@ export async function POST(request: Request) {
         auto_run,
         followup_message,
         followup_business_days,
+        reply_to_comment,
+        comment_reply,
+        invite_on_fail,
+        invite_note,
         active: true,
         linkedin_account_id: accountRowId,
       })

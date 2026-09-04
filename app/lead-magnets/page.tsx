@@ -34,12 +34,20 @@ export default function LeadMagnetsPage() {
   const [autoRun, setAutoRun] = useState(false)
   const [followup, setFollowup] = useState('')
   const [followupDays, setFollowupDays] = useState('2')
+  const [replyToComment, setReplyToComment] = useState(false)
+  const [commentReply, setCommentReply] = useState('Envoyé en MP {prenom} 📩')
+  const [inviteOnFail, setInviteOnFail] = useState(false)
+  const [inviteNote, setInviteNote] = useState("Hello {prenom}, je t'envoie la ressource — connecte-toi qu'on puisse échanger 🙌 {magnet_url}")
 
   // edit messages on an existing campaign
   const [editId, setEditId] = useState<string | null>(null)
   const [editTpl, setEditTpl] = useState('')
   const [editFollow, setEditFollow] = useState('')
   const [editDays, setEditDays] = useState('2')
+  const [editReply, setEditReply] = useState(false)
+  const [editCommentReply, setEditCommentReply] = useState('')
+  const [editInvite, setEditInvite] = useState(false)
+  const [editInviteNote, setEditInviteNote] = useState('')
 
   const fetchCampaigns = useCallback(async () => {
     const data = await fetch('/api/lead-magnets').then((r) => r.json())
@@ -85,6 +93,10 @@ export default function LeadMagnetsPage() {
         auto_run: autoRun,
         followup_message: followup.trim() || null,
         followup_business_days: Number(followupDays) || 2,
+        reply_to_comment: replyToComment,
+        comment_reply: commentReply.trim() || null,
+        invite_on_fail: inviteOnFail,
+        invite_note: inviteNote.trim() || null,
       }),
     })
     if (res.ok) {
@@ -97,6 +109,8 @@ export default function LeadMagnetsPage() {
       setAutoRun(false)
       setFollowup('')
       setFollowupDays('2')
+      setReplyToComment(false)
+      setInviteOnFail(false)
       fetchCampaigns()
     } else {
       const data = await res.json()
@@ -179,6 +193,10 @@ export default function LeadMagnetsPage() {
     setEditTpl(c.message_template || '')
     setEditFollow(c.followup_message || '')
     setEditDays(String(c.followup_business_days ?? 2))
+    setEditReply(!!c.reply_to_comment)
+    setEditCommentReply(c.comment_reply || 'Envoyé en MP {prenom} 📩')
+    setEditInvite(!!c.invite_on_fail)
+    setEditInviteNote(c.invite_note || "Hello {prenom}, je t'envoie la ressource — connecte-toi qu'on puisse échanger 🙌 {magnet_url}")
   }
 
   const saveEdit = async (id: string) => {
@@ -186,6 +204,10 @@ export default function LeadMagnetsPage() {
       message_template: editTpl.trim(),
       followup_message: editFollow.trim() || null,
       followup_business_days: Number(editDays) || 2,
+      reply_to_comment: editReply,
+      comment_reply: editCommentReply.trim() || null,
+      invite_on_fail: editInvite,
+      invite_note: editInviteNote.trim() || null,
     })
     setEditId(null)
     setMsg('Messages mis à jour ✅')
@@ -270,6 +292,22 @@ export default function LeadMagnetsPage() {
             onChange={(e) => setFollowup(e.target.value)}
             className="w-full border border-gray-200 rounded px-2 py-2 text-sm resize-none"
           />
+          <div className="border-t border-gray-100 pt-2 space-y-2">
+            <label className="text-xs text-gray-700 flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={replyToComment} onChange={(e) => setReplyToComment(e.target.checked)} />
+              Répondre publiquement au commentaire (« Envoyé en MP ✅ »)
+            </label>
+            {replyToComment && (
+              <input type="text" value={commentReply} onChange={(e) => setCommentReply(e.target.value)} placeholder="Réponse publique. Variables : {prenom}" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" />
+            )}
+            <label className="text-xs text-gray-700 flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={inviteOnFail} onChange={(e) => setInviteOnFail(e.target.checked)} />
+              Si la personne n&apos;est pas connectée (2ᵉ degré) → envoyer une demande de connexion avec note
+            </label>
+            {inviteOnFail && (
+              <textarea rows={2} value={inviteNote} onChange={(e) => setInviteNote(e.target.value)} placeholder="Note d'invitation (≤300 car.). Variables : {prenom}, {magnet_url}" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs resize-none" />
+            )}
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
             <label className="text-xs text-gray-700 flex items-center gap-1.5">
               Relance après
@@ -426,6 +464,24 @@ export default function LeadMagnetsPage() {
                           <input type="number" min={1} value={editDays} onChange={(e) => setEditDays(e.target.value)} className="w-14 border border-gray-200 rounded px-1.5 py-0.5 text-xs" />
                           jours ouvrés
                         </label>
+                      </div>
+                      <div className="border-t border-blue-100 pt-2 space-y-1.5">
+                        <label className="text-[11px] text-gray-700 flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" checked={editReply} onChange={(e) => setEditReply(e.target.checked)} />
+                          Répondre publiquement au commentaire (« Envoyé en MP ✅ »)
+                        </label>
+                        {editReply && (
+                          <input type="text" value={editCommentReply} onChange={(e) => setEditCommentReply(e.target.value)} placeholder="Réponse publique. {prenom}" className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+                        )}
+                        <label className="text-[11px] text-gray-700 flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" checked={editInvite} onChange={(e) => setEditInvite(e.target.checked)} />
+                          2ᵉ degré → demande de connexion avec note
+                        </label>
+                        {editInvite && (
+                          <textarea rows={2} value={editInviteNote} onChange={(e) => setEditInviteNote(e.target.value)} placeholder="Note d'invitation (≤300 car.). {prenom}, {magnet_url}" className="w-full border border-gray-200 rounded px-2 py-1 text-xs resize-none" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
                         <button onClick={() => saveEdit(c.id)} className="text-[11px] px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 ml-auto">Enregistrer</button>
                         <button onClick={() => setEditId(null)} className="text-[11px] px-2 py-1 text-gray-500 hover:text-gray-700">Annuler</button>
                       </div>
@@ -436,6 +492,7 @@ export default function LeadMagnetsPage() {
                   {(() => {
                     const sent = c.sent_count || 0
                     const failed = c.failed_count || 0
+                    const invited = c.invited_count || 0
                     const total = previewMeta?.matches
                     // Restants = cibles non encore traitées (ni envoyées, ni non-contactables).
                     const remaining = total != null ? Math.max(0, total - sent - failed) : null
@@ -466,6 +523,11 @@ export default function LeadMagnetsPage() {
                           {total != null && <span className="text-gray-400">/ {total} cibles</span>}
                           {remaining != null && remaining > 0 && (
                             <span className="text-gray-400">· {remaining} restants</span>
+                          )}
+                          {invited > 0 && (
+                            <span className="text-indigo-600" title="Personnes en 2ᵉ degré : une demande de connexion (avec la ressource) leur a été envoyée.">
+                              · {invited} invités
+                            </span>
                           )}
                           {failed > 0 && (
                             <span className="text-amber-600" title="Personnes non joignables en DM (pas connectées ou messagerie fermée) — automatiquement ignorées.">

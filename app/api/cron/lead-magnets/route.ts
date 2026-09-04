@@ -15,10 +15,46 @@
 //                          en pause (active=false) coupe l'envoi au prochain tour.
 
 import { getServerSupabase } from '@/lib/supabase'
-import { getPostComments, startNewChat, sendMessage, getChatMessages, normalizeComment, resolvePostSocialId } from '@/lib/unipile'
+import { getPostComments, startNewChat, sendMessage, getChatMessages, sendPostComment, sendLinkedInInvitation, normalizeComment, resolvePostSocialId, type NormalizedComment } from '@/lib/unipile'
 import { checkLimit, logAction } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
 import { addBusinessDays } from '@/lib/utils'
+
+const DEFAULT_COMMENT_REPLY = 'Envoyé en MP {prenom} 📩 (check tes messages 🙌)'
+const DEFAULT_INVITE_NOTE = "Hello {prenom}, je t'envoie la ressource — connecte-toi qu'on puisse échanger 🙌 {magnet_url}"
+
+type LMCampaign = {
+  id: string
+  name: string
+  magnet_url: string | null
+  reply_to_comment?: boolean
+  comment_reply?: string | null
+  invite_on_fail?: boolean
+  invite_note?: string | null
+}
+
+// Répond publiquement au commentaire de la personne (best-effort, ne bloque
+// jamais l'envoi). Renvoie l'ISO si la réponse est postée, sinon null.
+async function maybeReplyToComment(
+  db: ReturnType<typeof getServerSupabase>,
+  ACCOUNT_ID: string,
+  socialId: string,
+  campaign: LMCampaign,
+  n: NormalizedComment
+): Promise<string | null> {
+  if (!campaign.reply_to_comment || !n.comment_id) return null
+  const tpl = campaign.comment_reply?.trim() || DEFAULT_COMMENT_REPLY
+  try {
+    const chk = await checkLimit(db, ACCOUNT_ID, 'comment')
+    if (!chk.allowed) return null
+    const text = await personalize(tpl, n.commenter_name, campaign.magnet_url)
+    await sendPostComment(ACCOUNT_ID, socialId, text, n.comment_id)
+    await logAction(db, ACCOUNT_ID, 'comment')
+    return new Date().toISOString()
+  } catch {
+    return null
+  }
+}
 
 export const maxDuration = 300
 
@@ -133,7 +169,7 @@ async function trySendFollowup(
 async function sendOne(
   db: ReturnType<typeof getServerSupabase>,
   campaignId: string | null
-): Promise<{ sent: number; campaign?: string; name?: string | null; reason?: string }> {
+): Promise<SendResult> {
   let q = db.from('lead_magnet_campaigns').select('*').eq('active', true)
   if (campaignId) q = q.eq('id', campaignId)
   else q = q.eq('auto_run', true)
@@ -201,9 +237,9 @@ async function sendOne(
         try {
           const chat = (await startNewChat(ACCOUNT_ID, providerId, personalised)) as { id?: string }
           await logAction(db, ACCOUNT_ID, 'dm')
-          // Planifie la relance à N jours ouvrés (défaut 2) si un message de
-          // relance est configuré. On garde le chat_id pour continuer le fil et
-          // détecter les réponses.
+          // Réponse publique au commentaire (« Envoyé en MP ✅ »), best-effort.
+          const commentRepliedAt = await maybeReplyToComment(db, ACCOUNT_ID, socialId, campaign, n)
+          // Planifie la relance à N jours ouvrés (défaut 2) si configurée.
           const followupDue = campaign.followup_message
             ? addBusinessDays(new Date(), campaign.followup_business_days || 2).toISOString()
             : null
@@ -216,14 +252,45 @@ async function sendOne(
             message_sent: personalised,
             chat_id: chat?.id || null,
             followup_due_at: followupDue,
+            comment_replied_at: commentRepliedAt,
           })
           await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
-          return { sent: 1, campaign: campaign.name, name: n.commenter_name }
+          return { sent: 1, campaign: campaign.name, name: n.commenter_name, step: 'dm' }
         } catch (err) {
-          // Personne non-contactable (pas connectée / DM fermés / restriction) :
-          // on la marque ([ÉCHEC] dans message_sent) pour ne PAS la reproposer,
-          // et on CONTINUE au commentateur suivant — un seul échec ne doit jamais
-          // arrêter toute la distribution.
+          // DM impossible (souvent 2e degré / messagerie fermée).
+          // Option : au lieu d'échouer, on envoie une DEMANDE DE CONNEXION avec
+          // une note (qui porte la ressource) → le 2e degré devient un lead.
+          if (campaign.invite_on_fail) {
+            const invChk = await checkLimit(db, ACCOUNT_ID, 'invite')
+            if (invChk.allowed) {
+              const note = (await personalize(campaign.invite_note?.trim() || DEFAULT_INVITE_NOTE, n.commenter_name, campaign.magnet_url)).slice(0, 290)
+              try {
+                await sendLinkedInInvitation(ACCOUNT_ID, providerId, note)
+                await logAction(db, ACCOUNT_ID, 'invite')
+                const commentRepliedAt = await maybeReplyToComment(db, ACCOUNT_ID, socialId, campaign, n)
+                sentSet.add(providerId)
+                await db.from('lead_magnet_sends').insert({
+                  campaign_id: campaign.id,
+                  commenter_provider_id: providerId,
+                  commenter_name: n.commenter_name,
+                  commenter_profile_url: n.commenter_profile_url,
+                  comment_text: n.comment_text,
+                  message_sent: `[INVITÉ] ${note}`,
+                  invited_at: new Date().toISOString(),
+                  comment_replied_at: commentRepliedAt,
+                }).then(() => {}, () => {})
+                await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
+                return { sent: 1, campaign: campaign.name, name: n.commenter_name, step: 'invite' }
+              } catch {
+                // invitation aussi impossible → on marque échec (voir ci-dessous)
+              }
+            } else {
+              // Plafond invitations atteint : on ne marque PAS (retry demain),
+              // on passe au commentateur suivant.
+              continue
+            }
+          }
+          // Ni DM ni invitation → on marque [ÉCHEC] pour ne pas boucler dessus.
           sentSet.add(providerId)
           await db
             .from('lead_magnet_sends')

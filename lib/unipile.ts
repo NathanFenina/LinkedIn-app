@@ -192,6 +192,7 @@ export interface RawComment {
 }
 
 export interface NormalizedComment {
+  comment_id: string | null
   commenter_provider_id: string | null
   commenter_name: string | null
   commenter_headline: string | null
@@ -203,6 +204,7 @@ export interface NormalizedComment {
 export function normalizeComment(c: RawComment): NormalizedComment {
   const a = c.author_details || {}
   return {
+    comment_id: c.id || null,
     commenter_provider_id: a.id || a.public_identifier || null,
     commenter_name: typeof c.author === 'string' ? c.author : null,
     commenter_headline: a.headline || null,
@@ -234,10 +236,17 @@ export async function getPostComments(
   }
 }
 
-export async function sendPostComment(accountId: string, socialId: string, text: string) {
+// Poste un commentaire sur un post, ou RÉPOND à un commentaire précis si
+// commentId est fourni (Unipile accepte comment_id pour répondre dans le fil).
+export async function sendPostComment(
+  accountId: string,
+  socialId: string,
+  text: string,
+  commentId?: string | null
+) {
   return unipileFetch(`/posts/${encodeURIComponent(socialId)}/comments`, {
     method: 'POST',
-    body: JSON.stringify({ account_id: accountId, text }),
+    body: JSON.stringify({ account_id: accountId, text, ...(commentId ? { comment_id: commentId } : {}) }),
   })
 }
 

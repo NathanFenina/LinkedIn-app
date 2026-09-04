@@ -116,8 +116,13 @@ export interface LeadMagnetCampaign {
   updated_at: string
   followup_message?: string | null
   followup_business_days?: number
+  reply_to_comment?: boolean
+  comment_reply?: string | null
+  invite_on_fail?: boolean
+  invite_note?: string | null
   sent_count?: number
   failed_count?: number
+  invited_count?: number
 }
 
 // Audits ciblés — envoi manuel d'audits GEO à une liste d'entreprises nommées.
