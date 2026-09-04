@@ -15,7 +15,7 @@ export type ActionType = 'comment' | 'dm' | 'invite' | 'accept' | 'profile_view'
 // Départ conservateur (montée douce possible plus tard). Commentaires jusqu'à 30.
 export const CAPS: Record<ActionType, number> = {
   comment: 30,
-  dm: 60,
+  dm: 50,
   invite: 15,
   accept: 20,
   profile_view: 120,
