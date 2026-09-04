@@ -114,6 +114,8 @@ export interface LeadMagnetCampaign {
   linkedin_account_id: string | null
   created_at: string
   updated_at: string
+  followup_message?: string | null
+  followup_business_days?: number
   sent_count?: number
   failed_count?: number
 }

@@ -44,6 +44,8 @@ export async function POST(request: Request) {
   const { name, post_url, trigger_keyword, message_template, magnet_url } = body
   const min_comments = Math.max(0, Number(body.min_comments) || 0)
   const auto_run = !!body.auto_run
+  const followup_message = body.followup_message?.trim() || null
+  const followup_business_days = Math.max(1, Number(body.followup_business_days) || 2)
 
   if (!name?.trim() || !post_url?.trim() || !message_template?.trim()) {
     return Response.json(
@@ -70,6 +72,8 @@ export async function POST(request: Request) {
         magnet_url: magnet_url?.trim() || null,
         min_comments,
         auto_run,
+        followup_message,
+        followup_business_days,
         active: true,
         linkedin_account_id: accountRowId,
       })

@@ -5,6 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Ajoute N jours OUVRÉS (lun-ven) à une date, en sautant samedi/dimanche.
+// Ex: vendredi + 2 jours ouvrés → mardi. Utilisé pour les relances.
+export function addBusinessDays(from: Date, n: number): Date {
+  const d = new Date(from)
+  let added = 0
+  while (added < n) {
+    d.setDate(d.getDate() + 1)
+    const day = d.getDay() // 0 = dimanche, 6 = samedi
+    if (day !== 0 && day !== 6) added++
+  }
+  return d
+}
+
 // Extrait un message lisible d'une erreur (Error, erreur Supabase, string…).
 // Évite les "[object Object]" quand String(err) est appelé sur un objet.
 export function errMsg(err: unknown): string {

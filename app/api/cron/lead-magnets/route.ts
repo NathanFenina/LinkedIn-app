@@ -15,9 +15,10 @@
 //                          en pause (active=false) coupe l'envoi au prochain tour.
 
 import { getServerSupabase } from '@/lib/supabase'
-import { getPostComments, startNewChat, normalizeComment, resolvePostSocialId } from '@/lib/unipile'
+import { getPostComments, startNewChat, sendMessage, getChatMessages, normalizeComment, resolvePostSocialId } from '@/lib/unipile'
 import { checkLimit, logAction } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
+import { addBusinessDays } from '@/lib/utils'
 
 export const maxDuration = 300
 
@@ -65,6 +66,67 @@ async function personalize(
     .replace(/\{magnet_url\}/gi, magnetUrl || '')
 }
 
+type SendResult = { sent: number; campaign?: string; name?: string | null; reason?: string; step?: string }
+
+// Tente d'envoyer UNE relance due pour la campagne (2 jours ouvrés après le 1er
+// message, UNIQUEMENT à ceux qui n'ont pas répondu). Renvoie le résultat si une
+// relance part (ou un blocage plafond), sinon null (aucune relance due).
+async function trySendFollowup(
+  db: ReturnType<typeof getServerSupabase>,
+  ACCOUNT_ID: string,
+  campaign: { id: string; name: string; followup_message: string | null; magnet_url: string | null }
+): Promise<SendResult | null> {
+  if (!campaign.followup_message) return null
+  const nowIso = new Date().toISOString()
+  for (let i = 0; i < 100; i++) {
+    const { data: due } = await db
+      .from('lead_magnet_sends')
+      .select('*')
+      .eq('campaign_id', campaign.id)
+      .is('followup_sent_at', null)
+      .eq('replied', false)
+      .not('chat_id', 'is', null)
+      .not('message_sent', 'ilike', '[ÉCHEC]%')
+      .lte('followup_due_at', nowIso)
+      .order('followup_due_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (!due) return null // aucune relance due
+
+    // RÈGLE : jamais de relance à quelqu'un qui a répondu.
+    let replied = false
+    try {
+      const msgs = await getChatMessages(due.chat_id as string, 15)
+      replied = msgs.some((m) => !(m.is_sender === 1 || m.is_sender === true))
+    } catch {
+      // Lecture impossible → on ne prend pas le risque de relancer un répondeur.
+      // On sort des relances pour ce tour (les 1ers messages, eux, continuent).
+      return null
+    }
+    if (replied) {
+      await db.from('lead_magnet_sends').update({ replied: true }).eq('id', due.id)
+      continue // cible suivante
+    }
+
+    const chk = await checkLimit(db, ACCOUNT_ID, 'dm')
+    if (!chk.allowed) return { sent: 0, reason: chk.reason || 'Plafond messages atteint' }
+
+    const text = await personalize(campaign.followup_message, due.commenter_name, campaign.magnet_url)
+    try {
+      await sendMessage(due.chat_id as string, text)
+      await logAction(db, ACCOUNT_ID, 'dm')
+      await db.from('lead_magnet_sends').update({ followup_sent_at: new Date().toISOString() }).eq('id', due.id)
+      return { sent: 1, campaign: campaign.name, name: due.commenter_name, step: 'relance' }
+    } catch {
+      // Échec d'envoi de la relance : on marque comme traitée pour ne pas
+      // boucler, et on continue à la relance suivante (ne stoppe pas la session).
+      await db.from('lead_magnet_sends').update({ followup_sent_at: new Date().toISOString() }).eq('id', due.id)
+      continue
+    }
+  }
+  return null
+}
+
 // Envoie AU PLUS UN DM sur l'ensemble des campagnes candidates. Renvoie
 // { sent, campaign?, name? } — sent=0 signifie "plus rien à envoyer" (fin de
 // session pour la boucle GitHub Actions).
@@ -91,6 +153,11 @@ async function sendOne(
     if (socialId !== campaign.social_id) {
       await db.from('lead_magnet_campaigns').update({ social_id: socialId }).eq('id', campaign.id)
     }
+
+    // PRIORITÉ 1 : relances dues (2 jours ouvrés, sans réponse). On les envoie
+    // avant les nouveaux 1ers messages.
+    const followup = await trySendFollowup(db, ACCOUNT_ID, campaign)
+    if (followup) return followup
 
     const { data: alreadySent } = await db
       .from('lead_magnet_sends')
@@ -132,8 +199,14 @@ async function sendOne(
 
         const personalised = await personalize(campaign.message_template, n.commenter_name, campaign.magnet_url)
         try {
-          await startNewChat(ACCOUNT_ID, providerId, personalised)
+          const chat = (await startNewChat(ACCOUNT_ID, providerId, personalised)) as { id?: string }
           await logAction(db, ACCOUNT_ID, 'dm')
+          // Planifie la relance à N jours ouvrés (défaut 2) si un message de
+          // relance est configuré. On garde le chat_id pour continuer le fil et
+          // détecter les réponses.
+          const followupDue = campaign.followup_message
+            ? addBusinessDays(new Date(), campaign.followup_business_days || 2).toISOString()
+            : null
           await db.from('lead_magnet_sends').insert({
             campaign_id: campaign.id,
             commenter_provider_id: providerId,
@@ -141,6 +214,8 @@ async function sendOne(
             commenter_profile_url: n.commenter_profile_url,
             comment_text: n.comment_text,
             message_sent: personalised,
+            chat_id: chat?.id || null,
+            followup_due_at: followupDue,
           })
           await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
           return { sent: 1, campaign: campaign.name, name: n.commenter_name }

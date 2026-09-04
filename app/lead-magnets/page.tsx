@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { LeadMagnetCampaign } from '@/types'
-import { Plus, Play, Trash2, Eye, Square, ExternalLink } from 'lucide-react'
+import { Plus, Play, Trash2, Eye, Square, ExternalLink, Pencil } from 'lucide-react'
 import { HelpButton } from '@/components/HelpButton'
 import { formatDistanceToNow } from '@/lib/utils'
 
@@ -32,6 +32,14 @@ export default function LeadMagnetsPage() {
   const [magnetUrl, setMagnetUrl] = useState('')
   const [minComments, setMinComments] = useState('')
   const [autoRun, setAutoRun] = useState(false)
+  const [followup, setFollowup] = useState('')
+  const [followupDays, setFollowupDays] = useState('2')
+
+  // edit messages on an existing campaign
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editTpl, setEditTpl] = useState('')
+  const [editFollow, setEditFollow] = useState('')
+  const [editDays, setEditDays] = useState('2')
 
   const fetchCampaigns = useCallback(async () => {
     const data = await fetch('/api/lead-magnets').then((r) => r.json())
@@ -75,6 +83,8 @@ export default function LeadMagnetsPage() {
         magnet_url: magnetUrl.trim() || null,
         min_comments: Number(minComments) || 0,
         auto_run: autoRun,
+        followup_message: followup.trim() || null,
+        followup_business_days: Number(followupDays) || 2,
       }),
     })
     if (res.ok) {
@@ -85,6 +95,8 @@ export default function LeadMagnetsPage() {
       setMagnetUrl('')
       setMinComments('')
       setAutoRun(false)
+      setFollowup('')
+      setFollowupDays('2')
       fetchCampaigns()
     } else {
       const data = await res.json()
@@ -161,6 +173,24 @@ export default function LeadMagnetsPage() {
     setMsg('Envoi coupé. La session s’arrête d’ici 2-3 min (fin du délai en cours).')
   }
 
+  const openEdit = (c: LeadMagnetCampaign) => {
+    if (editId === c.id) { setEditId(null); return }
+    setEditId(c.id)
+    setEditTpl(c.message_template || '')
+    setEditFollow(c.followup_message || '')
+    setEditDays(String(c.followup_business_days ?? 2))
+  }
+
+  const saveEdit = async (id: string) => {
+    await update(id, {
+      message_template: editTpl.trim(),
+      followup_message: editFollow.trim() || null,
+      followup_business_days: Number(editDays) || 2,
+    })
+    setEditId(null)
+    setMsg('Messages mis à jour ✅')
+  }
+
   const loadSends = async (id: string) => {
     if (sendsByCampaign[id]) {
       setSendsByCampaign((prev) => {
@@ -224,6 +254,7 @@ export default function LeadMagnetsPage() {
               className="border border-gray-200 rounded px-2 py-1.5 text-sm"
             />
           </div>
+          <label className="text-[11px] text-gray-500">1er message (à tous les commentateurs ciblés)</label>
           <textarea
             rows={4}
             placeholder="Template du DM. Variables: {prenom} (nettoyé par IA), {name}, {magnet_url}"
@@ -231,7 +262,26 @@ export default function LeadMagnetsPage() {
             onChange={(e) => setTemplate(e.target.value)}
             className="w-full border border-gray-200 rounded px-2 py-2 text-sm resize-none"
           />
+          <label className="text-[11px] text-gray-500">Relance (optionnelle) — envoyée après X jours ouvrés, seulement à ceux qui n&apos;ont pas répondu</label>
+          <textarea
+            rows={3}
+            placeholder="Message de relance (laisse vide pour ne pas relancer). Mêmes variables : {prenom}, {magnet_url}"
+            value={followup}
+            onChange={(e) => setFollowup(e.target.value)}
+            className="w-full border border-gray-200 rounded px-2 py-2 text-sm resize-none"
+          />
           <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-xs text-gray-700 flex items-center gap-1.5">
+              Relance après
+              <input
+                type="number"
+                min={1}
+                value={followupDays}
+                onChange={(e) => setFollowupDays(e.target.value)}
+                className="w-16 border border-gray-200 rounded px-2 py-1 text-xs"
+              />
+              jours ouvrés
+            </label>
             <label className="text-xs text-gray-700 flex items-center gap-1.5">
               Seuil min commentaires :
               <input
@@ -306,6 +356,11 @@ export default function LeadMagnetsPage() {
                         )}
                       </div>
                       <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap line-clamp-3">{c.message_template}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        {c.followup_message
+                          ? `+ relance après ${c.followup_business_days ?? 2} j ouvrés (si pas de réponse)`
+                          : 'Pas de relance configurée'}
+                      </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 flex-wrap">
                       <button
@@ -333,6 +388,13 @@ export default function LeadMagnetsPage() {
                         <Square className="w-3 h-3" /> Arrêter
                       </button>
                       <button
+                        onClick={() => openEdit(c)}
+                        className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
+                        title="Éditer le 1er message et la relance"
+                      >
+                        <Pencil className="w-3 h-3" /> Messages
+                      </button>
+                      <button
                         onClick={() => loadSends(c.id)}
                         className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
                       >
@@ -346,6 +408,29 @@ export default function LeadMagnetsPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Éditeur de messages (1er message + relance) */}
+                  {editId === c.id && (
+                    <div className="mt-2 border border-blue-200 bg-blue-50/40 rounded p-2 space-y-2">
+                      <div>
+                        <label className="text-[11px] text-gray-600">1er message</label>
+                        <textarea rows={4} value={editTpl} onChange={(e) => setEditTpl(e.target.value)} className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs resize-y" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-gray-600">Relance (vide = pas de relance)</label>
+                        <textarea rows={3} value={editFollow} onChange={(e) => setEditFollow(e.target.value)} placeholder="Message de relance — envoyé seulement à ceux qui n'ont pas répondu" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs resize-y" />
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="text-[11px] text-gray-700 flex items-center gap-1">
+                          Relance après
+                          <input type="number" min={1} value={editDays} onChange={(e) => setEditDays(e.target.value)} className="w-14 border border-gray-200 rounded px-1.5 py-0.5 text-xs" />
+                          jours ouvrés
+                        </label>
+                        <button onClick={() => saveEdit(c.id)} className="text-[11px] px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 ml-auto">Enregistrer</button>
+                        <button onClick={() => setEditId(null)} className="text-[11px] px-2 py-1 text-gray-500 hover:text-gray-700">Annuler</button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Panneau de distribution : état + progression */}
                   {(() => {
