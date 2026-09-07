@@ -14,13 +14,16 @@ export type ActionType = 'comment' | 'dm' | 'invite' | 'accept' | 'profile_view'
 
 // Départ conservateur (montée douce possible plus tard). Commentaires jusqu'à 30.
 export const CAPS: Record<ActionType, number> = {
-  comment: 30,
+  // Partagé entre "commentaires auto" (posts prospects) ET les réponses
+  // publiques des lead-magnets (« Envoyé en MP » / « ajoute-moi »). Monté à 50
+  // pour que les deux cohabitent sans se bloquer.
+  comment: 50,
   dm: 50,
   invite: 15,
   accept: 20,
   profile_view: 120,
 }
-export const GLOBAL_CAP = 150
+export const GLOBAL_CAP = 170
 
 export const ACTION_LABELS: Record<ActionType, string> = {
   comment: 'Commentaires',
