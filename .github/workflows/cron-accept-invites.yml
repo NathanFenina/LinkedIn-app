@@ -1,0 +1,37 @@
+name: Auto-Accept Invitations
+# Accepte les invitations LinkedIn reçues, UNE PAR UNE, espacées de 2-3 min,
+# et envoie un message de bienvenue. Tourne une fois par jour (schedule) ou à la
+# demande. Respecte les plafonds (accept + dm) et le plafond quotidien de la
+# config. Mettre l'auto-accept sur off dans l'app coupe l'envoi au tour suivant.
+on:
+  schedule:
+    # 06:00 UTC ≈ 8h heure française (été). GitHub peut décaler de ~1h.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Run auto-accept session
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in $(seq 1 60); do
+            resp=$(curl -fsSL -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$APP_URL/api/cron/accept-invites")
+            echo "[$i] $resp"
+
+            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
+
+            # Rien accepté (plus d'invitation, plafond, ou désactivé) → fin.
+            if [ "${sent:-0}" = "0" ]; then
+              echo "Session terminée (sent=$sent)."
+              break
+            fi
+
+            # Espacement aléatoire 120-180s (2-3 min) avant la prochaine.
+            sleep $(( ( RANDOM % 61 ) + 120 ))
+          done

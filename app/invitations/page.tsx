@@ -24,6 +24,49 @@ export default function InvitationsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [drafts, setDrafts] = useState<Record<string, string>>({})
 
+  // Auto-accept config
+  const [autoEnabled, setAutoEnabled] = useState(false)
+  const [autoMsg, setAutoMsg] = useState('')
+  const [autoCap, setAutoCap] = useState('20')
+  const [autoBusy, setAutoBusy] = useState(false)
+
+  const fetchAutoCfg = useCallback(async () => {
+    const d = await fetch('/api/auto-accept').then((r) => r.json()).catch(() => null)
+    if (d && !d.error) {
+      setAutoEnabled(!!d.enabled)
+      setAutoMsg(d.welcome_message || '')
+      setAutoCap(String(d.daily_cap ?? 20))
+    }
+  }, [])
+
+  const saveAutoCfg = async (patch?: { enabled?: boolean }) => {
+    const enabled = patch?.enabled ?? autoEnabled
+    setAutoEnabled(enabled)
+    setAutoBusy(true)
+    try {
+      await fetch('/api/auto-accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, welcome_message: autoMsg, daily_cap: Number(autoCap) || 20 }),
+      })
+      setMsg('Réglage auto-accept enregistré ✅')
+    } finally {
+      setAutoBusy(false)
+    }
+  }
+
+  const runAutoAccept = async () => {
+    setAutoBusy(true)
+    setMsg('Lancement de l’acceptation des invitations…')
+    try {
+      const res = await fetch('/api/auto-accept/run', { method: 'POST' })
+      const data = await res.json()
+      setMsg(data.error ? `⚠️ ${data.error}` : (data.message || 'Session lancée.'))
+    } finally {
+      setAutoBusy(false)
+    }
+  }
+
   const fetchInvites = useCallback(async () => {
     setLoading(true)
     try {
@@ -37,7 +80,8 @@ export default function InvitationsPage() {
 
   useEffect(() => {
     fetchInvites()
-  }, [fetchInvites])
+    fetchAutoCfg()
+  }, [fetchInvites, fetchAutoCfg])
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -179,6 +223,42 @@ export default function InvitationsPage() {
       </header>
 
       <div className="max-w-[1000px] mx-auto px-6 py-6 space-y-4">
+        {/* Auto-accept config */}
+        <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm text-gray-900">Acceptation automatique</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${autoEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                {autoEnabled ? 'Activée' : 'Désactivée'}
+              </span>
+            </div>
+            <label className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={autoEnabled} onChange={(e) => saveAutoCfg({ enabled: e.target.checked })} disabled={autoBusy} />
+              Activer / désactiver
+            </label>
+          </div>
+          <p className="text-[11px] text-gray-500">Une fois par jour (~8h), les invitations reçues sont acceptées une par une (espacées 2-3 min) avec ce message de bienvenue :</p>
+          <textarea
+            rows={4}
+            value={autoMsg}
+            onChange={(e) => setAutoMsg(e.target.value)}
+            placeholder="Message de bienvenue. Variable dispo : {prenom}"
+            className="w-full border border-gray-200 rounded px-2 py-2 text-sm resize-y"
+          />
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-xs text-gray-700 flex items-center gap-1.5">
+              Max / jour
+              <input type="number" min={1} max={50} value={autoCap} onChange={(e) => setAutoCap(e.target.value)} className="w-16 border border-gray-200 rounded px-2 py-1 text-xs" />
+            </label>
+            <button onClick={() => saveAutoCfg()} disabled={autoBusy} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+              Enregistrer le message
+            </button>
+            <button onClick={runAutoAccept} disabled={autoBusy} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1.5 ml-auto">
+              {autoBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accepter les invitations maintenant
+            </button>
+          </div>
+        </div>
+
         {invites.length > 0 && (
           <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm flex flex-wrap items-center gap-2">
             <label className="inline-flex items-center gap-2 text-xs text-gray-600 mr-1">
