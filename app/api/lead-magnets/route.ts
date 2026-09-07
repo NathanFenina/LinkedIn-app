@@ -18,13 +18,14 @@ export async function GET() {
     const campaigns = data || []
     const withCounts = await Promise.all(
       campaigns.map(async (c: { id: string }) => {
-        const [{ count: sentCount }, { count: failedCount }, { count: invitedCount }] = await Promise.all([
+        const [{ count: sentCount }, { count: failedCount }, { count: invitedCount }, { count: commentedCount }] = await Promise.all([
           db
             .from('lead_magnet_sends')
             .select('id', { count: 'exact', head: true })
             .eq('campaign_id', c.id)
             .not('message_sent', 'ilike', '[ÉCHEC]%')
-            .not('message_sent', 'ilike', '[INVITÉ]%'),
+            .not('message_sent', 'ilike', '[INVITÉ]%')
+            .not('message_sent', 'ilike', '[COMMENT]%'),
           db
             .from('lead_magnet_sends')
             .select('id', { count: 'exact', head: true })
@@ -35,8 +36,13 @@ export async function GET() {
             .select('id', { count: 'exact', head: true })
             .eq('campaign_id', c.id)
             .ilike('message_sent', '[INVITÉ]%'),
+          db
+            .from('lead_magnet_sends')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', c.id)
+            .ilike('message_sent', '[COMMENT]%'),
         ])
-        return { ...c, sent_count: sentCount || 0, failed_count: failedCount || 0, invited_count: invitedCount || 0 }
+        return { ...c, sent_count: sentCount || 0, failed_count: failedCount || 0, invited_count: invitedCount || 0, commented_count: commentedCount || 0 }
       })
     )
     return Response.json(withCounts)
@@ -54,6 +60,7 @@ export async function POST(request: Request) {
   const followup_business_days = Math.max(1, Number(body.followup_business_days) || 2)
   const reply_to_comment = !!body.reply_to_comment
   const comment_reply = body.comment_reply?.trim() || null
+  const comment_reply_notconnected = body.comment_reply_notconnected?.trim() || null
   const invite_on_fail = !!body.invite_on_fail
   const invite_note = body.invite_note?.trim() || null
 
@@ -86,6 +93,7 @@ export async function POST(request: Request) {
         followup_business_days,
         reply_to_comment,
         comment_reply,
+        comment_reply_notconnected,
         invite_on_fail,
         invite_note,
         active: true,

@@ -21,6 +21,7 @@ import { extractFirstName } from '@/lib/gemini'
 import { addBusinessDays } from '@/lib/utils'
 
 const DEFAULT_COMMENT_REPLY = 'Envoyé en MP {prenom} 📩 (check tes messages 🙌)'
+const DEFAULT_NOTCONNECTED_REPLY = "Merci {prenom} 🙌 ajoute-moi en contact et je t'envoie la ressource en MP direct !"
 const DEFAULT_INVITE_NOTE = "Hello {prenom}, je t'envoie la ressource — connecte-toi qu'on puisse échanger 🙌 {magnet_url}"
 
 type LMCampaign = {
@@ -29,21 +30,22 @@ type LMCampaign = {
   magnet_url: string | null
   reply_to_comment?: boolean
   comment_reply?: string | null
+  comment_reply_notconnected?: string | null
   invite_on_fail?: boolean
   invite_note?: string | null
 }
 
-// Répond publiquement au commentaire de la personne (best-effort, ne bloque
-// jamais l'envoi). Renvoie l'ISO si la réponse est postée, sinon null.
-async function maybeReplyToComment(
+// Répond publiquement au commentaire de la personne avec le texte fourni
+// (best-effort, ne bloque jamais l'envoi). Renvoie l'ISO si posté, sinon null.
+async function postCommentReply(
   db: ReturnType<typeof getServerSupabase>,
   ACCOUNT_ID: string,
   socialId: string,
   campaign: LMCampaign,
-  n: NormalizedComment
+  n: NormalizedComment,
+  tpl: string
 ): Promise<string | null> {
-  if (!campaign.reply_to_comment || !n.comment_id) return null
-  const tpl = campaign.comment_reply?.trim() || DEFAULT_COMMENT_REPLY
+  if (!campaign.reply_to_comment || !n.comment_id || !tpl.trim()) return null
   try {
     const chk = await checkLimit(db, ACCOUNT_ID, 'comment')
     if (!chk.allowed) return null
@@ -238,7 +240,7 @@ async function sendOne(
           const chat = (await startNewChat(ACCOUNT_ID, providerId, personalised)) as { id?: string }
           await logAction(db, ACCOUNT_ID, 'dm')
           // Réponse publique au commentaire (« Envoyé en MP ✅ »), best-effort.
-          const commentRepliedAt = await maybeReplyToComment(db, ACCOUNT_ID, socialId, campaign, n)
+          const commentRepliedAt = await postCommentReply(db, ACCOUNT_ID, socialId, campaign, n, campaign.comment_reply?.trim() || DEFAULT_COMMENT_REPLY)
           // Planifie la relance à N jours ouvrés (défaut 2) si configurée.
           const followupDue = campaign.followup_message
             ? addBusinessDays(new Date(), campaign.followup_business_days || 2).toISOString()
@@ -267,7 +269,7 @@ async function sendOne(
               try {
                 await sendLinkedInInvitation(ACCOUNT_ID, providerId, note)
                 await logAction(db, ACCOUNT_ID, 'invite')
-                const commentRepliedAt = await maybeReplyToComment(db, ACCOUNT_ID, socialId, campaign, n)
+                const commentRepliedAt = await postCommentReply(db, ACCOUNT_ID, socialId, campaign, n, campaign.comment_reply_notconnected?.trim() || DEFAULT_NOTCONNECTED_REPLY)
                 sentSet.add(providerId)
                 await db.from('lead_magnet_sends').insert({
                   campaign_id: campaign.id,
@@ -290,8 +292,28 @@ async function sendOne(
               continue
             }
           }
-          // Ni DM ni invitation → on marque [ÉCHEC] pour ne pas boucler dessus.
+          // Pas de DM (ni invitation) → on invite la personne à se connecter
+          // via un COMMENTAIRE public (« ajoute-moi et je t'envoie la ressource »).
           sentSet.add(providerId)
+          const notConnTpl = campaign.comment_reply_notconnected?.trim() || DEFAULT_NOTCONNECTED_REPLY
+          const cRepliedAt = await postCommentReply(db, ACCOUNT_ID, socialId, campaign, n, notConnTpl)
+          if (cRepliedAt) {
+            await db
+              .from('lead_magnet_sends')
+              .insert({
+                campaign_id: campaign.id,
+                commenter_provider_id: providerId,
+                commenter_name: n.commenter_name,
+                commenter_profile_url: n.commenter_profile_url,
+                comment_text: n.comment_text,
+                message_sent: `[COMMENT] ${notConnTpl}`,
+                comment_replied_at: cRepliedAt,
+              })
+              .then(() => {}, () => {})
+            await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
+            return { sent: 1, campaign: campaign.name, name: n.commenter_name, step: 'comment' }
+          }
+          // Rien n'a pu être fait (ni DM, ni invitation, ni commentaire) → [ÉCHEC].
           await db
             .from('lead_magnet_sends')
             .insert({

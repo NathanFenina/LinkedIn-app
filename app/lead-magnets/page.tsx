@@ -36,6 +36,7 @@ export default function LeadMagnetsPage() {
   const [followupDays, setFollowupDays] = useState('2')
   const [replyToComment, setReplyToComment] = useState(false)
   const [commentReply, setCommentReply] = useState('Envoyé en MP {prenom} 📩')
+  const [commentReplyNC, setCommentReplyNC] = useState("Merci {prenom} 🙌 ajoute-moi en contact et je t'envoie la ressource en MP direct !")
   const [inviteOnFail, setInviteOnFail] = useState(false)
   const [inviteNote, setInviteNote] = useState("Hello {prenom}, je t'envoie la ressource — connecte-toi qu'on puisse échanger 🙌 {magnet_url}")
 
@@ -46,6 +47,7 @@ export default function LeadMagnetsPage() {
   const [editDays, setEditDays] = useState('2')
   const [editReply, setEditReply] = useState(false)
   const [editCommentReply, setEditCommentReply] = useState('')
+  const [editCommentReplyNC, setEditCommentReplyNC] = useState('')
   const [editInvite, setEditInvite] = useState(false)
   const [editInviteNote, setEditInviteNote] = useState('')
 
@@ -95,6 +97,7 @@ export default function LeadMagnetsPage() {
         followup_business_days: Number(followupDays) || 2,
         reply_to_comment: replyToComment,
         comment_reply: commentReply.trim() || null,
+        comment_reply_notconnected: commentReplyNC.trim() || null,
         invite_on_fail: inviteOnFail,
         invite_note: inviteNote.trim() || null,
       }),
@@ -195,6 +198,7 @@ export default function LeadMagnetsPage() {
     setEditDays(String(c.followup_business_days ?? 2))
     setEditReply(!!c.reply_to_comment)
     setEditCommentReply(c.comment_reply || 'Envoyé en MP {prenom} 📩')
+    setEditCommentReplyNC(c.comment_reply_notconnected || "Merci {prenom} 🙌 ajoute-moi en contact et je t'envoie la ressource en MP direct !")
     setEditInvite(!!c.invite_on_fail)
     setEditInviteNote(c.invite_note || "Hello {prenom}, je t'envoie la ressource — connecte-toi qu'on puisse échanger 🙌 {magnet_url}")
   }
@@ -206,6 +210,7 @@ export default function LeadMagnetsPage() {
       followup_business_days: Number(editDays) || 2,
       reply_to_comment: editReply,
       comment_reply: editCommentReply.trim() || null,
+      comment_reply_notconnected: editCommentReplyNC.trim() || null,
       invite_on_fail: editInvite,
       invite_note: editInviteNote.trim() || null,
     })
@@ -298,7 +303,10 @@ export default function LeadMagnetsPage() {
               Répondre publiquement au commentaire (« Envoyé en MP ✅ »)
             </label>
             {replyToComment && (
-              <input type="text" value={commentReply} onChange={(e) => setCommentReply(e.target.value)} placeholder="Réponse publique. Variables : {prenom}" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" />
+              <>
+                <input type="text" value={commentReply} onChange={(e) => setCommentReply(e.target.value)} placeholder="Réponse aux CONNECTÉS (après DM). Variables : {prenom}" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" />
+                <input type="text" value={commentReplyNC} onChange={(e) => setCommentReplyNC(e.target.value)} placeholder="Réponse aux NON connectés (2ᵉ degré) — inviter à se connecter. {prenom}" className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs" />
+              </>
             )}
             <label className="text-xs text-gray-700 flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={inviteOnFail} onChange={(e) => setInviteOnFail(e.target.checked)} />
@@ -471,7 +479,10 @@ export default function LeadMagnetsPage() {
                           Répondre publiquement au commentaire (« Envoyé en MP ✅ »)
                         </label>
                         {editReply && (
-                          <input type="text" value={editCommentReply} onChange={(e) => setEditCommentReply(e.target.value)} placeholder="Réponse publique. {prenom}" className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+                          <>
+                            <input type="text" value={editCommentReply} onChange={(e) => setEditCommentReply(e.target.value)} placeholder="Réponse aux connectés (après DM). {prenom}" className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+                            <input type="text" value={editCommentReplyNC} onChange={(e) => setEditCommentReplyNC(e.target.value)} placeholder="Réponse aux non-connectés (2ᵉ degré) : inviter à se connecter. {prenom}" className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+                          </>
                         )}
                         <label className="text-[11px] text-gray-700 flex items-center gap-1.5 cursor-pointer">
                           <input type="checkbox" checked={editInvite} onChange={(e) => setEditInvite(e.target.checked)} />
@@ -493,6 +504,7 @@ export default function LeadMagnetsPage() {
                     const sent = c.sent_count || 0
                     const failed = c.failed_count || 0
                     const invited = c.invited_count || 0
+                    const commented = c.commented_count || 0
                     const total = previewMeta?.matches
                     // Restants = cibles non encore traitées (ni envoyées, ni non-contactables).
                     const remaining = total != null ? Math.max(0, total - sent - failed) : null
@@ -527,6 +539,11 @@ export default function LeadMagnetsPage() {
                           {invited > 0 && (
                             <span className="text-indigo-600" title="Personnes en 2ᵉ degré : une demande de connexion (avec la ressource) leur a été envoyée.">
                               · {invited} invités
+                            </span>
+                          )}
+                          {commented > 0 && (
+                            <span className="text-purple-600" title="2ᵉ degré : commentaire public posté pour les inviter à se connecter.">
+                              · {commented} invités en commentaire
                             </span>
                           )}
                           {failed > 0 && (
