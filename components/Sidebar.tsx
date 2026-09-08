@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, LayoutDashboard, Send, FileSearch, Gauge } from 'lucide-react'
+import { useState } from 'react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -15,28 +16,42 @@ type NavItem = {
   group?: string
 }
 
-const NAV: NavItem[] = [
-  { href: '/cockpit', label: 'Cockpit', icon: Gauge, group: 'PILOTAGE' },
-  { href: '/pilotage', label: 'À faire aujourd\'hui', icon: LayoutDashboard, group: 'PILOTAGE' },
-  { href: '/prospection', label: 'Prospection', icon: Target, group: 'PILOTAGE' },
-  { href: '/outreach', label: 'Séquenceur outbound', icon: Send, group: 'PILOTAGE' },
-  { href: '/audits', label: 'Audits ciblés', icon: FileSearch, group: 'PILOTAGE' },
-  { href: '/messagerie', label: 'Messagerie', icon: MessageSquare, group: 'MESSAGES' },
-  { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'MESSAGES' },
-  { href: '/', label: 'CRM (leads)', icon: Users, group: 'CRM' },
-  { href: '/connections', label: 'Connexions', icon: LinkIcon, group: 'CRM' },
-  { href: '/visitors', label: 'Visiteurs', icon: Eye, group: 'CRM' },
-  { href: '/comments', label: 'Commentaires auto', icon: MessageCircle, group: 'OUTREACH' },
-  { href: '/signals', label: 'Signaux', icon: Target, group: 'OUTREACH' },
-  { href: '/jobs', label: 'Jobs', icon: Briefcase, group: 'OUTREACH' },
-  { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'OUTREACH' },
-  { href: '/competitor', label: 'Outreach concurrent', icon: UserPlus2, group: 'OUTREACH' },
-  { href: '/templates', label: 'Templates', icon: FileText, group: 'CONFIG' },
-  { href: '/automations', label: 'Automations', icon: Zap, group: 'CONFIG' },
+type Item = NavItem & { secondary?: boolean }
+
+const NAV: Item[] = [
+  // — Primaire : 8 onglets, 3 groupes clairs —
+  { href: '/cockpit', label: 'Cockpit', icon: Gauge, group: 'PILOTER' },
+  { href: '/outreach', label: 'Séquenceur', icon: Send, group: 'PROSPECTER' },
+  { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'PROSPECTER' },
+  { href: '/audits', label: 'Audits ciblés', icon: FileSearch, group: 'PROSPECTER' },
+  { href: '/comments', label: 'Commentaires auto', icon: MessageCircle, group: 'PROSPECTER' },
+  { href: '/', label: 'CRM (leads)', icon: Users, group: 'GÉRER' },
+  { href: '/messagerie', label: 'Messagerie', icon: MessageSquare, group: 'GÉRER' },
+  { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'GÉRER' },
+  // — Secondaire : rangé sous « Plus » (rien n'est supprimé) —
+  { href: '/prospection', label: 'Prospection', icon: Target, secondary: true },
+  { href: '/connections', label: 'Connexions', icon: LinkIcon, secondary: true },
+  { href: '/visitors', label: 'Visiteurs', icon: Eye, secondary: true },
+  { href: '/signals', label: 'Signaux', icon: Target, secondary: true },
+  { href: '/jobs', label: 'Jobs', icon: Briefcase, secondary: true },
+  { href: '/competitor', label: 'Outreach concurrent', icon: UserPlus2, secondary: true },
+  { href: '/templates', label: 'Templates', icon: FileText, secondary: true },
+  { href: '/automations', label: 'Automations', icon: Zap, secondary: true },
 ]
+
+const PRIMARY_GROUPS = ['PILOTER', 'PROSPECTER', 'GÉRER'] as const
 
 export function Sidebar() {
   const pathname = usePathname()
+  const [showMore, setShowMore] = useState(false)
+
+  const linkClass = (href: string) => {
+    const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
+    return cn(
+      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+      active ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'
+    )
+  }
 
   return (
     <aside className="w-56 shrink-0 border-r border-gray-200 bg-white h-screen sticky top-0 flex flex-col">
@@ -54,42 +69,38 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {(['PILOTAGE', 'MESSAGES', 'CRM', 'OUTREACH', 'CONFIG'] as const).map((group) => (
+        {PRIMARY_GROUPS.map((group) => (
           <div key={group} className="pt-2 first:pt-0">
             <div className="px-3 py-1 text-[10px] font-bold text-gray-400 tracking-widest">{group}</div>
-            {NAV.filter((n) => n.group === group).map(({ href, label, icon: Icon, disabled }) => {
-              const active = !disabled && (href === '/' ? pathname === '/' : pathname.startsWith(href))
-              if (disabled) {
-                return (
-                  <div
-                    key={href}
-                    className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-300 cursor-not-allowed"
-                    title="Bientôt"
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span className="flex-1">{label}</span>
-                    <span className="text-[9px] uppercase bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">soon</span>
-                  </div>
-                )
-              }
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={cn(
-                    'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
-                    active
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  )}
-                >
+            {NAV.filter((n) => n.group === group).map(({ href, label, icon: Icon }) => (
+              <Link key={href} href={href} className={linkClass(href)}>
+                <Icon className="w-4 h-4" />
+                {label}
+              </Link>
+            ))}
+          </div>
+        ))}
+
+        {/* Plus — outils secondaires, repliés par défaut */}
+        <div className="pt-3">
+          <button
+            onClick={() => setShowMore((s) => !s)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-50"
+          >
+            <ChevronDown className={cn('w-4 h-4 transition-transform', showMore ? 'rotate-180' : '')} />
+            <span className="flex-1 text-left">Plus</span>
+          </button>
+          {showMore && (
+            <div className="mt-0.5">
+              {NAV.filter((n) => n.secondary).map(({ href, label, icon: Icon }) => (
+                <Link key={href} href={href} className={linkClass(href)}>
                   <Icon className="w-4 h-4" />
                   {label}
                 </Link>
-              )
-            })}
-          </div>
-        ))}
+              ))}
+            </div>
+          )}
+        </div>
       </nav>
 
       <LimitsBadge />
