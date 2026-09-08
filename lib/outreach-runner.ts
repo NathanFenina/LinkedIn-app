@@ -246,7 +246,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
         break
       }
       if (replied) {
-        await db.from('outreach_targets').update({ status: 'replied' }).eq('id', due.id)
+        await db.from('outreach_targets').update({ status: 'replied', replied_at: new Date().toISOString() }).eq('id', due.id)
         continue // on ne relance pas — cible suivante
       }
 

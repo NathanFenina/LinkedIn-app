@@ -142,7 +142,7 @@ async function trySendFollowup(
       return null
     }
     if (replied) {
-      await db.from('lead_magnet_sends').update({ replied: true }).eq('id', due.id)
+      await db.from('lead_magnet_sends').update({ replied: true, replied_at: new Date().toISOString() }).eq('id', due.id)
       continue // cible suivante
     }
 

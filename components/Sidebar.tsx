@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, LayoutDashboard, Send, FileSearch } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, LayoutDashboard, Send, FileSearch, Gauge } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -16,6 +16,7 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
+  { href: '/cockpit', label: 'Cockpit', icon: Gauge, group: 'PILOTAGE' },
   { href: '/pilotage', label: 'À faire aujourd\'hui', icon: LayoutDashboard, group: 'PILOTAGE' },
   { href: '/prospection', label: 'Prospection', icon: Target, group: 'PILOTAGE' },
   { href: '/outreach', label: 'Séquenceur outbound', icon: Send, group: 'PILOTAGE' },
