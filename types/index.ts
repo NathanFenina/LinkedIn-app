@@ -220,6 +220,7 @@ export interface CommentSend {
   status: 'draft' | 'skipped' | 'sent' | 'error'
   error: string | null
   created_at: string
+  posted_at?: string | null
 }
 
 export interface LeadMagnetSend {

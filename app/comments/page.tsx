@@ -241,7 +241,7 @@ export default function CommentsPage() {
   const totals = campaigns.reduce(
     (acc, c) => {
       const sent = sentByCampaign[c.id] || []
-      acc.sentToday += sent.filter((s) => new Date(s.created_at).getTime() >= todayStart0).length
+      acc.sentToday += sent.filter((s) => s.posted_at && new Date(s.posted_at).getTime() >= todayStart0).length
       acc.drafts += (draftsByCampaign[c.id] || []).length
       acc.cap += c.active ? c.daily_cap : 0
       if (c.active) acc.active += 1
@@ -422,7 +422,7 @@ export default function CommentsPage() {
           const sent = sentByCampaign[c.id] || []
           const sentCount = sent.length
           const todayStart = startOfTodayISO()
-          const sentToday = sent.filter((s) => new Date(s.created_at).getTime() >= todayStart).length
+          const sentToday = sent.filter((s) => s.posted_at && new Date(s.posted_at).getTime() >= todayStart).length
           const capPct = Math.min(100, Math.round((sentToday / Math.max(1, c.daily_cap)) * 100))
           const busy = busyId === c.id
           return (

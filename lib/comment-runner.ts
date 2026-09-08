@@ -33,12 +33,14 @@ async function resolveAccountIdForCampaign(
 async function sentTodayCount(db: Db, campaignId: string): Promise<number> {
   const startOfDay = new Date()
   startOfDay.setUTCHours(0, 0, 0, 0)
+  // Compté sur posted_at (date réelle de publication), pas created_at (date de
+  // création du brouillon) : un brouillon ancien posté aujourd'hui doit compter.
   const { count } = await db
     .from('comment_sends')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId)
     .eq('status', 'sent')
-    .gte('created_at', startOfDay.toISOString())
+    .gte('posted_at', startOfDay.toISOString())
   return count || 0
 }
 
@@ -309,7 +311,7 @@ export async function postNextDraft(db: Db, campaign: CommentCampaign): Promise<
       }
       await db
         .from('comment_sends')
-        .update({ status: 'sent', liked, error: null })
+        .update({ status: 'sent', liked, error: null, posted_at: new Date().toISOString() })
         .eq('id', draft.id)
       await db.from('comment_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
 
