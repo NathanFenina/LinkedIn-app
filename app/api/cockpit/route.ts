@@ -6,14 +6,25 @@ import { getActiveAccountId } from '@/lib/account'
 // semaine, moteurs de fond, et leads chauds à traiter.
 export const maxDuration = 60
 
-export async function GET() {
+// Bornes d'une semaine ISO (lundi→dimanche), décalée de `offset` semaines.
+function weekBounds(offset: number) {
+  const now = new Date()
+  const dow = (now.getUTCDay() + 6) % 7 // 0 = lundi
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dow - offset * 7))
+  const end = new Date(monday.getTime() + 7 * 86400000)
+  const sun = new Date(monday.getTime() + 6 * 86400000)
+  const fmt = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  return { start: monday.toISOString(), end: end.toISOString(), label: `${fmt(monday)} – ${fmt(sun)}` }
+}
+
+export async function GET(request: Request) {
   try {
     const db = getServerSupabase()
     const accountId = await getActiveAccountId().catch(() => '')
-    const now = Date.now()
     const day = 86400000
-    const w0 = new Date(now - 7 * day).toISOString() // il y a 7j
-    const w1 = new Date(now - 14 * day).toISOString() // il y a 14j
+    const weekOffset = Math.max(0, Math.min(52, Number(new URL(request.url).searchParams.get('week')) || 0))
+    const now = Date.now()
+    const w0 = new Date(now - 7 * day).toISOString() // 7 derniers jours (moteurs)
 
     const cnt = async (builder: PromiseLike<{ count: number | null }>) => (await builder).count || 0
 
@@ -42,23 +53,21 @@ export async function GET() {
       })
     )
 
-    // ---- Semaine par semaine (2 dernières) ----
-    const dmWeek = async (since: string, until?: string) => {
-      let q = db.from('linkedin_actions').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('type', 'dm').gte('created_at', since)
-      if (until) q = q.lt('created_at', until)
-      return cnt(q)
-    }
-    const repliesWeek = async (since: string, until?: string) => {
-      const one = async (table: 'outreach_targets' | 'lead_magnet_sends') => {
-        let q = db.from(table).select('id', { count: 'exact', head: true }).not('replied_at', 'is', null).gte('replied_at', since)
-        if (until) q = q.lt('replied_at', until)
-        return cnt(q)
-      }
+    // ---- Semaine sélectionnée (navigation) ----
+    const dmIn = async (since: string, until: string) =>
+      cnt(db.from('linkedin_actions').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('type', 'dm').gte('created_at', since).lt('created_at', until))
+    const commentIn = async (since: string, until: string) =>
+      cnt(db.from('linkedin_actions').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('type', 'comment').gte('created_at', since).lt('created_at', until))
+    const repliesIn = async (since: string, until: string) => {
+      const one = async (table: 'outreach_targets' | 'lead_magnet_sends') =>
+        cnt(db.from(table).select('id', { count: 'exact', head: true }).not('replied_at', 'is', null).gte('replied_at', since).lt('replied_at', until))
       const [a, b] = await Promise.all([one('outreach_targets'), one('lead_magnet_sends')])
       return a + b
     }
-    const [dmThis, dmPrev, repThis, repPrev] = await Promise.all([
-      dmWeek(w0), dmWeek(w1, w0), repliesWeek(w0), repliesWeek(w1, w0),
+    const cur = weekBounds(weekOffset)
+    const prev = weekBounds(weekOffset + 1)
+    const [dmCur, dmPrv, repCur, repPrv, comCur] = await Promise.all([
+      dmIn(cur.start, cur.end), dmIn(prev.start, prev.end), repliesIn(cur.start, cur.end), repliesIn(prev.start, prev.end), commentIn(cur.start, cur.end),
     ])
 
     // ---- Moteurs de fond (pas des campagnes, juste "ça tourne") ----
@@ -104,8 +113,13 @@ export async function GET() {
     return Response.json({
       campaigns: [...outreach, ...leadmagnets],
       weekly: {
-        this: { dm: dmThis, replies: repThis },
-        prev: { dm: dmPrev, replies: repPrev },
+        offset: weekOffset,
+        label: cur.label,
+        canNext: weekOffset > 0,
+        dm: dmCur,
+        comment: comCur,
+        replies: repCur,
+        prev: { dm: dmPrv, replies: repPrv },
       },
       engines: {
         comments: { active: commentsActive, posted_7j: commentsPosted7j },

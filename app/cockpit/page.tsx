@@ -1,14 +1,15 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Flame, RefreshCw, ExternalLink, CheckCircle2, UserPlus2, Radio } from 'lucide-react'
+import { Flame, RefreshCw, ExternalLink, CheckCircle2, UserPlus2, Radio, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDistanceToNow } from '@/lib/utils'
 
 interface Campaign { type: string; name: string; active: boolean; envoyes: number; retours: number; succes: number }
 interface HotItem { id: string; source: 'outreach' | 'lead-magnet'; name: string | null; campaign: string | null; provider_id: string | null; profile_url: string | null; when: string | null; rdv: boolean }
+interface Weekly { offset: number; label: string; canNext: boolean; dm: number; comment: number; replies: number; prev: { dm: number; replies: number } }
 interface Data {
   campaigns: Campaign[]
-  weekly: { this: { dm: number; replies: number }; prev: { dm: number; replies: number } }
+  weekly: Weekly
   engines: { comments: { active: boolean; posted_7j: number }; autoAccept: { active: boolean; accepted_7j: number } }
   hot: { count: number; items: HotItem[] }
 }
@@ -18,16 +19,17 @@ export default function CockpitPage() {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  const [week, setWeek] = useState(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (wk: number) => {
     setLoading(true)
     try {
-      const d = await fetch('/api/cockpit').then((r) => r.json())
+      const d = await fetch(`/api/cockpit?week=${wk}`).then((r) => r.json())
       if (d.error) setErr(String(d.error))
       else { setData(d); setErr('') }
     } catch (e) { setErr(String(e)) } finally { setLoading(false) }
   }, [])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(week) }, [load, week])
 
   const act = async (item: HotItem, op: 'rdv' | 'crm') => {
     setBusy(item.id + op)
@@ -44,7 +46,7 @@ export default function CockpitPage() {
   }
 
   const w = data?.weekly
-  const rate = w && w.this.dm > 0 ? Math.round((w.this.replies / w.this.dm) * 100) : null
+  const rate = w && w.dm > 0 ? Math.round((w.replies / w.dm) * 100) : null
 
   return (
     <>
@@ -54,7 +56,7 @@ export default function CockpitPage() {
             <h1 className="font-semibold text-gray-900 text-base leading-tight">Pilotage</h1>
             <p className="text-xs text-gray-500">Tes campagnes, ce que tu envoies/reçois, et qui rappeler — sur un écran.</p>
           </div>
-          <button onClick={load} disabled={loading} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50">
+          <button onClick={() => load(week)} disabled={loading} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir
           </button>
         </div>
@@ -101,32 +103,40 @@ export default function CockpitPage() {
           </div>
         </section>
 
-        {/* B. Semaine par semaine */}
+        {/* B. Semaine (navigable) */}
         <section>
-          <h2 className="text-sm font-medium text-gray-900 mb-2">Cette semaine vs la précédente</h2>
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h2 className="text-sm font-medium text-gray-900">Suivi par semaine</h2>
+            <div className="inline-flex items-center gap-1 text-xs">
+              <button onClick={() => setWeek((x) => x + 1)} disabled={loading} className="px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40" title="Semaine précédente"><ChevronLeft className="w-3.5 h-3.5" /></button>
+              <span className="px-2 font-medium text-gray-700 min-w-[130px] text-center">{week === 0 ? 'Cette semaine' : w?.label || '…'}</span>
+              <button onClick={() => setWeek((x) => Math.max(0, x - 1))} disabled={loading || week === 0} className="px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40" title="Semaine suivante"><ChevronRight className="w-3.5 h-3.5" /></button>
+            </div>
+          </div>
+          <div className="text-[11px] text-gray-400 mb-2">{w?.label}</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div className="bg-white border border-gray-200 rounded-lg p-3">
               <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Messages envoyés</div>
-              <div className="text-2xl font-semibold text-gray-900">{w?.this.dm ?? '—'}</div>
-              <div className="text-[10px] text-gray-400">semaine préc. : {w?.prev.dm ?? '—'}</div>
+              <div className="text-2xl font-semibold text-gray-900">{w?.dm ?? '—'}</div>
+              <div className="text-[10px] text-gray-400">sem. préc. : {w?.prev.dm ?? '—'}</div>
             </div>
             <div className="bg-white border border-gray-200 rounded-lg p-3">
               <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Retours (réponses)</div>
-              <div className="text-2xl font-semibold text-gray-900">{w?.this.replies ?? '—'}</div>
-              <div className="text-[10px] text-gray-400">semaine préc. : {w?.prev.replies ?? '—'}</div>
+              <div className="text-2xl font-semibold text-gray-900">{w?.replies ?? '—'}</div>
+              <div className="text-[10px] text-gray-400">sem. préc. : {w?.prev.replies ?? '—'}</div>
             </div>
             <div className="bg-white border border-gray-200 rounded-lg p-3">
-              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Taux de réponse (7j)</div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Taux de réponse</div>
               <div className="text-2xl font-semibold text-gray-900">{rate != null ? `${rate}%` : '—'}</div>
               <div className="text-[10px] text-gray-400">réponses / envoyés</div>
             </div>
             <div className="bg-white border border-gray-200 rounded-lg p-3">
-              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Succès (RDV) — total</div>
-              <div className="text-2xl font-semibold text-green-700">{data?.campaigns.reduce((s, c) => s + c.succes, 0) ?? '—'}</div>
-              <div className="text-[10px] text-gray-400">marqués depuis les leads chauds</div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Commentaires postés</div>
+              <div className="text-2xl font-semibold text-gray-900">{w?.comment ?? '—'}</div>
+              <div className="text-[10px] text-gray-400">semaine sélectionnée</div>
             </div>
           </div>
-          <p className="text-[10px] text-gray-400 mt-1">Les retours se comptent quand l&apos;app détecte la réponse (au moment d&apos;une relance) — le chiffre se remplit à partir de maintenant.</p>
+          <p className="text-[10px] text-gray-400 mt-1">Navigue de semaine en semaine avec les flèches. Les retours se comptent quand l&apos;app détecte la réponse (au moment d&apos;une relance).</p>
         </section>
 
         {/* C. Moteurs de fond */}
