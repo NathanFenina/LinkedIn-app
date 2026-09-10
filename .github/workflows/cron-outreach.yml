@@ -8,10 +8,13 @@ name: Outbound Sequencer Session
 # atteint, donc c'est sûr même si la boucle tourne longtemps.
 on:
   schedule:
-    # 08:00 UTC ≈ 10h heure française. Déclenchement approximatif (GitHub peut
-    # décaler de quelques minutes). Décalé des commentaires (06:00) pour étaler
-    # l'activité sur la journée.
-    - cron: '0 8 * * *'
+    # Départs décalés (heure de Paris en été CEST = UTC+2) : 14h, 15h, 16h.
+    # Chaque campagne n'envoie que dans SA fenêtre horaire (active_hour_start) →
+    # CMO démarre à 14h, SEO à 15h, la 3e à 16h. Les plafonds/jour évitent tout
+    # doublon d'envoi entre les sessions. (En hiver CET=UTC+1, décalage +1h.)
+    - cron: '0 12 * * *'
+    - cron: '0 13 * * *'
+    - cron: '0 14 * * *'
   workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
 jobs:
   session:

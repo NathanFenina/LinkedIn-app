@@ -71,6 +71,7 @@ export interface SourceResult {
   errors: number
   error_sample?: string
   has_more: boolean // true = LinkedIn a renvoyé plus que ce qu'on a ramené (plafond atteint)
+  overlap?: Record<string, number> // audiences (tags/campagnes) auxquelles appartiennent les doublons écartés
 }
 
 // ÉTAPE 1 — Source les profils d'une URL, les score (IA vs ICP), et les insère
@@ -110,12 +111,24 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
 
   const ids = items.map(idOf).filter(Boolean) as string[]
   const inCampaign = new Set<string>()
+  const overlap: Record<string, number> = {}
   if (ids.length) {
-    const { data: byProv } = await db.from('outreach_targets').select('provider_id, public_identifier').in('provider_id', ids)
-    ;(byProv || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id); if (r.public_identifier) inCampaign.add(r.public_identifier) })
+    const { data: byProv } = await db.from('outreach_targets').select('provider_id, public_identifier, campaign_id').in('provider_id', ids)
+    // Table des audiences (tag sinon nom) pour dire À QUELLE audience appartient
+    // chaque doublon écarté.
+    const { data: allCamps } = await db.from('outreach_campaigns').select('id, name, tag')
+    const audienceOf = new Map((allCamps || []).map((c) => [c.id as string, (c.tag as string) || (c.name as string)]))
+    ;(byProv || []).forEach((r) => {
+      if (r.provider_id) inCampaign.add(r.provider_id)
+      if (r.public_identifier) inCampaign.add(r.public_identifier)
+      if (r.campaign_id && r.campaign_id !== campaign.id) {
+        const aud = audienceOf.get(r.campaign_id as string) || 'autre'
+        overlap[aud] = (overlap[aud] || 0) + 1
+      }
+    })
     // Liste "ne plus contacter" : on exclut ces personnes de TOUTES les campagnes.
     const { data: dnc } = await db.from('do_not_contact').select('provider_id').in('provider_id', ids)
-    ;(dnc || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id) })
+    ;(dnc || []).forEach((r) => { if (r.provider_id) { inCampaign.add(r.provider_id); overlap['🚫 ne plus contacter'] = (overlap['🚫 ne plus contacter'] || 0) + 1 } })
   }
 
   // Conversations LinkedIn existantes → provider_id : chat_id, pour marquer les
@@ -174,7 +187,7 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
     else { errors++; if (!error_sample) error_sample = error.message }
   }
 
-  return { added, total, skipped_dup, skipped_noid, errors, error_sample, has_more: !exhausted }
+  return { added, total, skipped_dup, skipped_noid, errors, error_sample, has_more: !exhausted, overlap }
 }
 
 // Combien envoyés aujourd'hui sur cette campagne (plafond quotidien campagne).

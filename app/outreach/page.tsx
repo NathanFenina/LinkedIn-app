@@ -145,7 +145,12 @@ export default function OutreachPage() {
         setMsg('⚠️ LinkedIn n’a renvoyé aucun profil pour cette URL. Vérifie que c’est bien une URL de recherche de personnes (…/search/results/people/…) et que ton compte y a accès.')
       } else {
         const parts = [`✓ ${data.added} ajoutés à valider`]
-        if (data.skipped_dup) parts.push(`${data.skipped_dup} déjà dans une campagne`)
+        if (data.skipped_dup) {
+          const ov = data.overlap && Object.keys(data.overlap).length
+            ? ` (${Object.entries(data.overlap as Record<string, number>).map(([a, n]) => `${a}: ${n}`).join(', ')})`
+            : ''
+          parts.push(`${data.skipped_dup} déjà dans une audience${ov}`)
+        }
         if (data.skipped_noid) parts.push(`${data.skipped_noid} sans identifiant`)
         if (data.errors) parts.push(`${data.errors} en erreur${data.error_sample ? ` (${data.error_sample})` : ''}`)
         const more = data.has_more ? ' · ⚠️ il reste des profils — reclique « Sourcer » pour la suite' : ' · liste complète ✓'

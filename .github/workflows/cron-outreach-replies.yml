@@ -4,8 +4,8 @@ name: Outreach - Détection réponses
 # Lecture seule côté LinkedIn (aucun envoi).
 on:
   schedule:
-    # ~9h, 14h, 19h heure française (plusieurs passages = détection quasi temps réel).
-    - cron: '0 7,12,17 * * *'
+    # 1×/jour vers 19h heure française (17h UTC en été CEST) — met à jour les réponses.
+    - cron: '0 17 * * *'
   workflow_dispatch:
 jobs:
   detect:
