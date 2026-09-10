@@ -8,8 +8,6 @@ export const maxDuration = 300
 // Sourcer une campagne À PARTIR D'UNE LISTE D'ENTREPRISES (ex: boîtes qui ont
 // levé). Pour chaque société : résout l'entreprise LinkedIn → cherche le/les
 // décideur(s) marketing → insère en 'sourced' (dédup + do_not_contact).
-const ROLE_KEYWORDS = 'CMO OR "chief marketing" OR "directeur marketing" OR "directrice marketing" OR "head of marketing" OR "VP marketing" OR "responsable marketing"'
-
 // Priorise les décideurs marketing sur la tagline.
 function roleScore(headline: string | null): number {
   const h = (headline || '').toLowerCase()
@@ -58,12 +56,19 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       if (!companyId) { notfound++; notFoundList.push(company); continue }
       resolved++
 
-      // 2) Cherche les décideurs marketing de cette boîte
+      // 2) Cherche les décideurs marketing de cette boîte. La recherche classique
+      // LinkedIn n'aime pas les grosses expressions OR → on tente "marketing"
+      // simple, puis tous les employés (on classe par rôle ensuite).
       let people: Person[] = []
-      try {
-        const r = await searchLinkedIn<Person>(accountId, { category: 'people', keywords: ROLE_KEYWORDS, limit: 15, extra: { company: [companyId] } })
-        people = r.items || []
-      } catch { /* skip */ }
+      const trySearch = async (opts: Parameters<typeof searchLinkedIn>[1]) => {
+        if (people.length) return
+        try {
+          const r = await searchLinkedIn<Person>(accountId, opts)
+          if (r.items?.length) people = r.items
+        } catch { /* on tente le fallback */ }
+      }
+      await trySearch({ category: 'people', keywords: 'marketing', limit: 25, extra: { company: [companyId] } })
+      await trySearch({ category: 'people', limit: 25, extra: { company: [companyId] } })
       if (!people.length) { notfound++; notFoundList.push(company); continue }
 
       // 3) Meilleurs décideurs marketing d'abord
