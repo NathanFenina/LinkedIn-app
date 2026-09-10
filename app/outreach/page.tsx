@@ -49,6 +49,8 @@ export default function OutreachPage() {
   const [foundersOnly, setFoundersOnly] = useState(false)
   const [hideProviders, setHideProviders] = useState(false)
   const [restStatus, setRestStatus] = useState('all')
+  const [showCompanies, setShowCompanies] = useState(false)
+  const [companiesText, setCompaniesText] = useState('')
   const [pubStatus, setPubStatus] = useState<{ status?: string; conclusion?: string | null; started_at?: string; html_url?: string; available?: boolean; none?: boolean } | null>(null)
 
   // create form
@@ -178,6 +180,22 @@ export default function OutreachPage() {
       await fetch('/api/outreach/dnc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: t.provider_id, name: t.name, reason: 'manuel' }) })
       await fetch(`/api/outreach/targets/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'skipped' }) })
       await loadTargets(selected!); await fetchCampaigns()
+    } finally { setBusy(null) }
+  }
+
+  // Source une campagne à partir d'une liste d'entreprises (une par ligne).
+  async function sourceCompanies(id: string) {
+    const list = companiesText.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean)
+    if (!list.length) { setMsg('Colle au moins une entreprise (une par ligne).'); return }
+    setBusy('sourceco'); setMsg('')
+    try {
+      const d = await fetch(`/api/outreach/${id}/source-companies`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ companies: list, per_company: 2 }) }).then((r) => r.json())
+      if (d.error) setMsg('Erreur : ' + d.error)
+      else {
+        setMsg(`✓ ${d.added} décideurs ajoutés · ${d.resolved}/${d.companies} boîtes résolues · ${d.skipped_dup} déjà dans une audience · ${d.notfound} introuvables${d.notFoundSample?.length ? ` (${d.notFoundSample.join(', ')})` : ''}`)
+        setShowCompanies(false); setCompaniesText('')
+        await loadTargets(id); await fetchCampaigns()
+      }
     } finally { setBusy(null) }
   }
 
@@ -424,6 +442,11 @@ export default function OutreachPage() {
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                   {busy === 'source' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Sourcer
                 </button>
+                <button onClick={() => setShowCompanies((v) => !v)} disabled={busy === 'sourceco'}
+                  title="Sourcer les décideurs marketing à partir d'une liste d'entreprises (ex: boîtes qui ont levé)"
+                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                  {busy === 'sourceco' ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🏢</span>} Par entreprises
+                </button>
                 <button onClick={() => rescanHistory(current.id)} disabled={busy === 'rescan'}
                   title="Re-scanne tes conversations LinkedIn pour rattraper les « déjà échangé » anciens"
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
@@ -447,6 +470,24 @@ export default function OutreachPage() {
                 </button>
                 <button onClick={() => remove(current.id)} className="p-1.5 rounded-lg border border-gray-300 hover:bg-red-50 text-red-500"><Trash2 className="w-4 h-4" /></button>
               </div>
+
+              {/* Sourcer par entreprises (ex: boîtes qui ont levé) */}
+              {showCompanies && (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-2">
+                  <div className="text-sm font-medium text-gray-800">🏢 Sourcer les décideurs marketing par entreprise</div>
+                  <p className="text-[11px] text-gray-500">Une entreprise par ligne (ex: des boîtes qui ont levé). L&apos;app résout chaque société sur LinkedIn et récupère jusqu&apos;à 2 décideurs marketing (CMO / Head of / VP Marketing).</p>
+                  <textarea value={companiesText} onChange={(e) => setCompaniesText(e.target.value)} rows={6}
+                    placeholder={'Alan\nPennylane\nSpendesk\nQonto\n…'}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
+                  <div className="flex gap-2">
+                    <button onClick={() => sourceCompanies(current.id)} disabled={busy === 'sourceco'}
+                      className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                      {busy === 'sourceco' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Sourcer ces entreprises
+                    </button>
+                    <button onClick={() => setShowCompanies(false)} className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">Fermer</button>
+                  </div>
+                </div>
+              )}
 
               {/* État de la session d'envoi (GitHub Actions) — pour savoir si ça tourne */}
               {pubStatus?.available && !pubStatus.none && pubStatus.status && (
