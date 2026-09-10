@@ -46,6 +46,7 @@ export default function OutreachPage() {
   const [filter, setFilter] = useState('')
   const [foundersOnly, setFoundersOnly] = useState(false)
   const [hideProviders, setHideProviders] = useState(false)
+  const [restStatus, setRestStatus] = useState('all')
   const [pubStatus, setPubStatus] = useState<{ status?: string; conclusion?: string | null; started_at?: string; html_url?: string; available?: boolean; none?: boolean } | null>(null)
 
   // create form
@@ -558,8 +559,28 @@ export default function OutreachPage() {
                 empty="Personne en file. Garde des profils depuis « À valider »."
               />
 
-              {/* SUIVI (envoyés / répondu / terminé) */}
-              <TargetTable title="Suivi" tone="slate" rows={rest} busy={busy} empty="Rien d'envoyé pour l'instant." />
+              {/* SUIVI (envoyés / répondu / terminé) — avec filtre par statut */}
+              <div className="mt-4">
+                <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                  {([
+                    ['all', `Tous (${rest.length})`],
+                    ['msg1_sent', `Msg 1 (${rest.filter((t) => t.status === 'msg1_sent').length})`],
+                    ['msg2_sent', `Relancés (${rest.filter((t) => t.status === 'msg2_sent').length})`],
+                    ['replied', `💬 Ont répondu (${rest.filter((t) => t.status === 'replied').length})`],
+                    ['done', `Terminés (${rest.filter((t) => t.status === 'done').length})`],
+                    ['skipped', `Écartés (${rest.filter((t) => t.status === 'skipped').length})`],
+                    ['error', `Erreurs (${rest.filter((t) => t.status === 'error').length})`],
+                  ] as const).map(([v, label]) => (
+                    <button key={v} onClick={() => setRestStatus(v)}
+                      className={`text-xs px-2.5 py-1 rounded-full border ${restStatus === v ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <TargetTable title="Suivi" tone="slate"
+                  rows={restStatus === 'all' ? rest : rest.filter((t) => t.status === restStatus)}
+                  busy={busy} empty="Rien d'envoyé pour l'instant." />
+              </div>
             </div>
           )}
         </div>
