@@ -158,12 +158,14 @@ export interface OutreachCampaign {
   active_hour_end: number | null
   source_cursor: string | null
   active: boolean
+  invite_first?: boolean
+  invite_note?: string | null
   created_at: string
   updated_at: string
 }
 
 export type OutreachTargetStatus =
-  | 'sourced' | 'approved' | 'skipped' | 'msg1_sent' | 'msg2_sent' | 'done' | 'replied' | 'error'
+  | 'sourced' | 'approved' | 'invited' | 'connected' | 'skipped' | 'msg1_sent' | 'msg2_sent' | 'done' | 'replied' | 'error'
 
 export interface OutreachTarget {
   id: string

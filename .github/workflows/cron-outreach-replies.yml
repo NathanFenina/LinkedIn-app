@@ -1,0 +1,19 @@
+name: Outreach - Détection réponses
+# Marque 'replied' les cibles outreach qui ont répondu, sans attendre la relance.
+# → taux de réponse fiables pour comparer les campagnes + leads chauds au Cockpit.
+# Lecture seule côté LinkedIn (aucun envoi).
+on:
+  schedule:
+    # ~9h, 14h, 19h heure française (plusieurs passages = détection quasi temps réel).
+    - cron: '0 7,12,17 * * *'
+  workflow_dispatch:
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Detect replies
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+        run: |
+          curl -fsSL -X POST "$APP_URL/api/outreach/detect-replies" -H "Content-Type: application/json"

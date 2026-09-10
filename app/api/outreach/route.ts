@@ -59,6 +59,8 @@ export async function POST(request: Request) {
         active_hour_start: body.active_hour_start == null ? 9 : Number(body.active_hour_start),
         active_hour_end: body.active_hour_end == null ? 18 : Number(body.active_hour_end),
         active: body.active !== false,
+        invite_first: body.invite_first === true,
+        invite_note: String(body.invite_note || '').trim() || null,
         linkedin_account_id: accountRowId,
       })
       .select()

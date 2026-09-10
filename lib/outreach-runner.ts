@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages, getChats } from '@/lib/unipile'
+import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages, getChats, getConnections, sendLinkedInInvitation } from '@/lib/unipile'
 import { scoreProfile } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
 import { guard } from '@/lib/limits'
@@ -113,6 +113,9 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
   if (ids.length) {
     const { data: byProv } = await db.from('outreach_targets').select('provider_id, public_identifier').in('provider_id', ids)
     ;(byProv || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id); if (r.public_identifier) inCampaign.add(r.public_identifier) })
+    // Liste "ne plus contacter" : on exclut ces personnes de TOUTES les campagnes.
+    const { data: dnc } = await db.from('do_not_contact').select('provider_id').in('provider_id', ids)
+    ;(dnc || []).forEach((r) => { if (r.provider_id) inCampaign.add(r.provider_id) })
   }
 
   // Conversations LinkedIn existantes → provider_id : chat_id, pour marquer les
@@ -207,6 +210,34 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
 
   const accountId = await accountFor(db, campaign.linkedin_account_id)
 
+  // Invitation-first : détecte les invitations ACCEPTÉES (la personne est devenue
+  // une connexion) → passe 'invited' → 'connected' pour qu'elle reçoive le msg1.
+  if (campaign.invite_first) {
+    const { data: invited } = await db
+      .from('outreach_targets')
+      .select('id, provider_id')
+      .eq('campaign_id', campaign.id)
+      .eq('status', 'invited')
+    if (invited && invited.length) {
+      try {
+        const conns = new Set<string>()
+        let cur: string | undefined = undefined
+        for (let p = 0; p < 10; p++) {
+          const { items, cursor } = await getConnections(accountId, 200, cur)
+          items.forEach((c) => { if (c.provider_id) conns.add(c.provider_id) })
+          if (!cursor || !items.length) break
+          cur = cursor
+        }
+        const now = new Date().toISOString()
+        for (const t of invited) {
+          if (t.provider_id && conns.has(t.provider_id)) {
+            await db.from('outreach_targets').update({ status: 'connected', connected_at: now }).eq('id', t.id)
+          }
+        }
+      } catch { /* API relations indispo → on réessaiera au prochain tour */ }
+    }
+  }
+
   // Priorité 1 : relances dues. RÈGLE ABSOLUE — jamais de relance à quelqu'un
   // qui a répondu. On purge d'abord toutes les relances "répondu" (statut
   // 'replied'), puis on envoie la 1re relance vraiment légitime. Boucle bornée
@@ -267,16 +298,48 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     }
   }
 
-  // Priorité 2 : 1er message aux approuvés.
+  // Priorité 2 : 1er message. En DM direct = aux 'approved'. En invitation-first
+  // = aux 'connected' (invitation déjà acceptée).
+  const msg1Status = campaign.invite_first ? 'connected' : 'approved'
   const { data: appr } = await db
     .from('outreach_targets')
     .select('*')
     .eq('campaign_id', campaign.id)
-    .eq('status', 'approved')
+    .eq('status', msg1Status)
     .order('score', { ascending: false })
     .limit(1)
     .maybeSingle()
-  if (!appr) return { sent: 0, skipped_reason: 'Aucun approuvé en attente' }
+
+  // Priorité 3 (invitation-first uniquement) : envoyer une invitation à un
+  // 'approved' quand il n'y a personne à messager. La note porte l'accroche.
+  if (!appr && campaign.invite_first) {
+    const { data: toInvite } = await db
+      .from('outreach_targets')
+      .select('*')
+      .eq('campaign_id', campaign.id)
+      .eq('status', 'approved')
+      .order('score', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!toInvite) return { sent: 0, skipped_reason: 'Aucune invitation ni message en attente' }
+    if (!toInvite.provider_id) {
+      await db.from('outreach_targets').update({ status: 'error', error: 'Pas de provider_id pour inviter' }).eq('id', toInvite.id)
+      return { sent: 0, error: 'Pas de provider_id' }
+    }
+    const gi = await guard(db, accountId, 'invite')
+    if (!gi.allowed) return { sent: 0, skipped_reason: gi.reason }
+    try {
+      const note = personalize(campaign.invite_note || '', toInvite.name).slice(0, 290)
+      await sendLinkedInInvitation(accountId, toInvite.provider_id, note || undefined)
+      await db.from('outreach_targets').update({ status: 'invited', invited_at: new Date().toISOString() }).eq('id', toInvite.id)
+      return { sent: 1, step: 'invite', target: toInvite.name }
+    } catch (err) {
+      await db.from('outreach_targets').update({ status: 'error', error: String(err).slice(0, 300) }).eq('id', toInvite.id)
+      return { sent: 0, error: String(err) }
+    }
+  }
+
+  if (!appr) return { sent: 0, skipped_reason: campaign.invite_first ? 'Aucune invitation acceptée à messager' : 'Aucun approuvé en attente' }
 
   const g = await guard(db, accountId, 'dm')
   if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
@@ -302,4 +365,38 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     await db.from('outreach_targets').update({ status: 'error', error: String(err).slice(0, 300) }).eq('id', appr.id)
     return { sent: 0, error: String(err) }
   }
+}
+
+// DÉTECTION DES RÉPONSES (indépendante des relances). Balaye les cibles déjà
+// contactées de TOUTES les campagnes actives et marque 'replied' + replied_at dès
+// qu'un message ENTRANT existe dans le fil. Sert à comparer les campagnes sur un
+// taux de réponse fiable, sans attendre qu'une relance passe. Lecture seule côté
+// LinkedIn (aucun envoi).
+export interface SweepRepliesResult { checked: number; replies: number }
+
+export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
+  const { data: campaigns } = await db.from('outreach_campaigns').select('id').eq('active', true)
+  let checked = 0, replies = 0
+  for (const c of campaigns || []) {
+    const { data: targets } = await db
+      .from('outreach_targets')
+      .select('id, chat_id')
+      .eq('campaign_id', c.id)
+      .in('status', ['msg1_sent', 'msg2_sent', 'done'])
+      .is('replied_at', null)
+      .not('chat_id', 'is', null)
+      .limit(500)
+    for (const t of targets || []) {
+      checked++
+      try {
+        const msgs = await getChatMessages(t.chat_id as string, 15)
+        const replied = msgs.some((m) => !(m.is_sender === 1 || m.is_sender === true))
+        if (replied) {
+          await db.from('outreach_targets').update({ status: 'replied', replied_at: new Date().toISOString() }).eq('id', t.id)
+          replies++
+        }
+      } catch { /* fil illisible → on réessaiera au prochain passage */ }
+    }
+  }
+  return { checked, replies }
 }

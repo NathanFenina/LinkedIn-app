@@ -15,6 +15,8 @@ type TargetWithHistory = OutreachTarget & {
 const STATUS_META: Record<string, { label: string; cls: string }> = {
   sourced: { label: 'À valider', cls: 'bg-amber-100 text-amber-700' },
   approved: { label: 'En file', cls: 'bg-blue-100 text-blue-700' },
+  invited: { label: '📨 Invité', cls: 'bg-cyan-100 text-cyan-700' },
+  connected: { label: '🤝 Connecté', cls: 'bg-teal-100 text-teal-700' },
   skipped: { label: 'Écarté', cls: 'bg-gray-100 text-gray-500' },
   msg1_sent: { label: 'Msg 1 envoyé', cls: 'bg-indigo-100 text-indigo-700' },
   msg2_sent: { label: 'Relancé', cls: 'bg-purple-100 text-purple-700' },
@@ -56,6 +58,8 @@ export default function OutreachPage() {
   const [msg2, setMsg2] = useState('')
   const [followupDays, setFollowupDays] = useState('3')
   const [dailyCap, setDailyCap] = useState('15')
+  const [inviteFirst, setInviteFirst] = useState(false)
+  const [inviteNote, setInviteNote] = useState('')
 
   // inline settings (campagne sélectionnée)
   const [sName, setSName] = useState('')
@@ -109,7 +113,7 @@ export default function OutreachPage() {
     try {
       const res = await fetch('/api/outreach', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, search_url: searchUrl, msg1, msg2: msg2 || null, followup_days: Number(followupDays), daily_cap: Number(dailyCap) }),
+        body: JSON.stringify({ name, search_url: searchUrl, msg1, msg2: msg2 || null, followup_days: Number(followupDays), daily_cap: Number(dailyCap), invite_first: inviteFirst, invite_note: inviteFirst ? (inviteNote || null) : null }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur')
@@ -156,6 +160,32 @@ export default function OutreachPage() {
     try {
       await fetch(`/api/outreach/targets/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
       await loadTargets(selected!); await fetchCampaigns()
+    } finally { setBusy(null) }
+  }
+
+  // Ban permanent : ajoute à la liste "ne plus contacter" (exclut du sourcing de
+  // TOUTES les campagnes) + écarte la cible ici.
+  async function banTarget(t: TargetWithHistory) {
+    if (!t.provider_id) { setMsg('Impossible : pas d’identifiant LinkedIn pour cette personne.'); return }
+    if (!confirm(`Ne plus JAMAIS contacter ${t.name || 'cette personne'} (toutes campagnes) ?`)) return
+    setBusy('t-' + t.id)
+    try {
+      await fetch('/api/outreach/dnc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider_id: t.provider_id, name: t.name, reason: 'manuel' }) })
+      await fetch(`/api/outreach/targets/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'skipped' }) })
+      await loadTargets(selected!); await fetchCampaigns()
+    } finally { setBusy(null) }
+  }
+
+  // Détecte les réponses sur toutes les campagnes actives (taux fiables).
+  async function detectReplies() {
+    setBusy('detect')
+    try {
+      const d = await fetch('/api/outreach/detect-replies', { method: 'POST' }).then((r) => r.json())
+      if (d.error) setMsg('Erreur détection : ' + d.error)
+      else {
+        setMsg(`Détection : ${d.replies} réponse(s) trouvée(s) sur ${d.checked} conversation(s) vérifiée(s).`)
+        if (selected) { await loadTargets(selected); await fetchCampaigns() }
+      }
     } finally { setBusy(null) }
   }
 
@@ -306,8 +336,22 @@ export default function OutreachPage() {
                 className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+          <div className="rounded-lg border border-cyan-200 bg-cyan-50/50 p-2.5">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={inviteFirst} onChange={(e) => setInviteFirst(e.target.checked)} />
+              <span><strong>Invitation d&apos;abord</strong> (hors audience) — envoie une invitation, puis le message une fois acceptée</span>
+            </label>
+            <p className="text-[11px] text-gray-500 mt-1">Coche pour cibler des gens à qui tu n&apos;es pas encore connecté (2e/3e degré). Séquence : invitation → (acceptée) → message initial → relance. Sinon, message direct aux 1res connexions.</p>
+            {inviteFirst && (
+              <div className="mt-2">
+                <label className="text-xs font-medium text-gray-600">Note d&apos;invitation (≤ 300 car., optionnelle) · <span className="text-gray-400">{'{prenom}'}</span></label>
+                <textarea value={inviteNote} onChange={(e) => setInviteNote(e.target.value)} rows={2} maxLength={300} placeholder="hello {prenom}, je connecte avec les gens qui font du SEO / de l'IA — au plaisir d'échanger 🙌"
+                  className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            )}
+          </div>
           <div>
-            <label className="text-xs font-medium text-gray-600">Message initial — envoyé à tous · <span className="text-gray-400">{'{prenom}'} = prénom auto</span></label>
+            <label className="text-xs font-medium text-gray-600">Message initial — envoyé {inviteFirst ? 'une fois l’invitation acceptée' : 'à tous'} · <span className="text-gray-400">{'{prenom}'} = prénom auto</span></label>
             <textarea value={msg1} onChange={(e) => setMsg1(e.target.value)} required rows={3} placeholder="salut {prenom}, je vois qu'on est connectés…"
               className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
@@ -379,6 +423,11 @@ export default function OutreachPage() {
                   title="Re-scanne tes conversations LinkedIn pour rattraper les « déjà échangé » anciens"
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                   {busy === 'rescan' ? <Loader2 className="w-4 h-4 animate-spin" /> : <History className="w-4 h-4" />} Re-scan historique
+                </button>
+                <button onClick={detectReplies} disabled={busy === 'detect'}
+                  title="Vérifie qui a répondu (marque « A répondu ») pour des taux de réponse fiables"
+                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                  {busy === 'detect' ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>💬</span>} Détecter réponses
                 </button>
                 <button onClick={() => publishSession(current.id)} disabled={busy === 'publish'} title="Lance la session d'envoi : la file part un par un, espacé (4-6 min), jusqu'au plafond du jour."
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
@@ -528,6 +577,9 @@ export default function OutreachPage() {
                     <button onClick={() => setStatus(t, 'skipped')} className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50">
                       <XCircle className="w-3.5 h-3.5" /> Écarter
                     </button>
+                    <button onClick={() => banTarget(t)} title="Ne plus jamais contacter (toutes campagnes)" className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">
+                      🚫
+                    </button>
                   </>
                 )}
                 empty="Rien à valider. Clique « Sourcer » pour récupérer les profils de la recherche."
@@ -564,6 +616,8 @@ export default function OutreachPage() {
                 <div className="flex items-center gap-1.5 flex-wrap mb-2">
                   {([
                     ['all', `Tous (${rest.length})`],
+                    ['invited', `📨 Invités (${rest.filter((t) => t.status === 'invited').length})`],
+                    ['connected', `🤝 Connectés (${rest.filter((t) => t.status === 'connected').length})`],
                     ['msg1_sent', `Msg 1 (${rest.filter((t) => t.status === 'msg1_sent').length})`],
                     ['msg2_sent', `Relancés (${rest.filter((t) => t.status === 'msg2_sent').length})`],
                     ['replied', `💬 Ont répondu (${rest.filter((t) => t.status === 'replied').length})`],
