@@ -237,7 +237,7 @@ async function sendOne(
 
         const personalised = await personalize(campaign.message_template, n.commenter_name, campaign.magnet_url)
         try {
-          const chat = (await startNewChat(ACCOUNT_ID, providerId, personalised)) as { id?: string }
+          const chat = (await startNewChat(ACCOUNT_ID, providerId, personalised)) as { chat_id?: string; id?: string }
           await logAction(db, ACCOUNT_ID, 'dm')
           // Réponse publique au commentaire (« Envoyé en MP ✅ »), best-effort.
           const commentRepliedAt = await postCommentReply(db, ACCOUNT_ID, socialId, campaign, n, campaign.comment_reply?.trim() || DEFAULT_COMMENT_REPLY)
@@ -252,7 +252,7 @@ async function sendOne(
             commenter_profile_url: n.commenter_profile_url,
             comment_text: n.comment_text,
             message_sent: personalised,
-            chat_id: chat?.id || null,
+            chat_id: chat?.chat_id || chat?.id || null,
             followup_due_at: followupDue,
             comment_replied_at: commentRepliedAt,
           })

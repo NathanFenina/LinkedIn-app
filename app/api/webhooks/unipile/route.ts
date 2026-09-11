@@ -15,6 +15,7 @@ type Payload = {
   timestamp?: string
   sender?: { attendee_provider_id?: string; attendee_name?: string }
   account_info?: { user_id?: string }
+  is_sender?: boolean | number
 }
 
 export async function POST(request: Request) {
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
   // Message envoyé par NOUS (Unipile inclut nos propres envois) → on ignore.
   const senderId = p.sender?.attendee_provider_id || ''
   const me = p.account_info?.user_id || ''
+  if (p.is_sender === true || p.is_sender === 1) return Response.json({ ok: true, ignored: 'own_message' })
   if (!senderId || (me && senderId === me)) return Response.json({ ok: true, ignored: 'own_message' })
 
   const text = (p.message || '').slice(0, 2000)

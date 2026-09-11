@@ -391,8 +391,10 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     let chatId = appr.chat_id as string | null
     if (chatId) await sendMessage(chatId, text)
     else {
-      const res = (await startNewChat(accountId, appr.provider_id!, text)) as { id?: string }
-      chatId = res?.id || null
+      // Unipile renvoie { object:'ChatStarted', chat_id } (pas `id`) → sans ça le
+      // chat_id restait vide et les réponses étaient invisibles.
+      const res = (await startNewChat(accountId, appr.provider_id!, text)) as { chat_id?: string; id?: string }
+      chatId = res?.chat_id || res?.id || null
     }
     const nextAt = new Date(Date.now() + (campaign.followup_days || 3) * 86400000).toISOString()
     await db.from('outreach_targets').update({
@@ -416,10 +418,33 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
 export interface SweepRepliesResult { checked: number; replies: number }
 
 export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
-  const { data: campaigns } = await db.from('outreach_campaigns').select('id').eq('active', true)
+  const { data: campaigns } = await db.from('outreach_campaigns').select('id, linkedin_account_id').eq('active', true)
   let checked = 0, replies = 0
+  // Backfill des chat_id manquants sur les cibles contactées (anciens envois où
+  // le chat_id n'avait pas été capturé) via le balayage des conversations.
+  let chatMap: Map<string, string> | null = null
   for (const c of campaigns || []) {
-    const { data: targets } = await db
+    const { data: noChat } = await db
+      .from('outreach_targets')
+      .select('id, provider_id')
+      .eq('campaign_id', c.id)
+      .in('status', ['msg1_sent', 'msg2_sent', 'done', 'replied'])
+      .is('chat_id', null)
+      .not('provider_id', 'is', null)
+      .limit(500)
+    if (!noChat?.length) continue
+    try {
+      if (!chatMap) chatMap = await sweepChats(await accountFor(db, c.linkedin_account_id as string | null), 30)
+      for (const t of noChat) {
+        const cid = chatMap.get(t.provider_id as string)
+        if (cid) await db.from('outreach_targets').update({ chat_id: cid }).eq('id', t.id)
+      }
+    } catch { /* balayage indisponible → on continue avec ce qu'on a */ }
+  }
+  for (const c of campaigns || []) {
+    // Cibles contactées sans réponse connue + cibles déjà 'replied' dont on n'a
+    // pas encore le texte de la réponse (backfill pour "À traiter maintenant").
+    const { data: pending } = await db
       .from('outreach_targets')
       .select('id, chat_id')
       .eq('campaign_id', c.id)
@@ -427,6 +452,15 @@ export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
       .is('replied_at', null)
       .not('chat_id', 'is', null)
       .limit(500)
+    const { data: repliedNoText } = await db
+      .from('outreach_targets')
+      .select('id, chat_id')
+      .eq('campaign_id', c.id)
+      .eq('status', 'replied')
+      .is('last_inbound', null)
+      .not('chat_id', 'is', null)
+      .limit(200)
+    const targets = [...(pending || []), ...(repliedNoText || [])]
     for (const t of targets || []) {
       checked++
       try {
