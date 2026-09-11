@@ -563,3 +563,25 @@ export interface RawConnection {
   first_name?: string
   last_name?: string
 }
+
+// ---------------------------------------------------------------------------
+// Webhooks : déclare un webhook "messaging" (message_received) vers request_url.
+// POST /webhooks  body: { request_url, source, name, events, headers }
+// ---------------------------------------------------------------------------
+export async function createMessagingWebhook(requestUrl: string, name = 'linkedin-app') {
+  return unipileFetch(`/webhooks`, {
+    method: 'POST',
+    body: JSON.stringify({
+      request_url: requestUrl,
+      source: 'messaging',
+      name,
+      events: ['message_received'],
+      headers: [{ key: 'Content-Type', value: 'application/json' }],
+    }),
+  })
+}
+
+export async function listWebhooks(): Promise<Array<{ id?: string; request_url?: string; source?: string }>> {
+  const data = await unipileFetch(`/webhooks`)
+  return (data.items || data || []) as Array<{ id?: string; request_url?: string; source?: string }>
+}

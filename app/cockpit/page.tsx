@@ -5,13 +5,14 @@ import { Flame, RefreshCw, ExternalLink, CheckCircle2, UserPlus2, Radio, Chevron
 import { formatDistanceToNow } from '@/lib/utils'
 
 interface Campaign { type: string; name: string; active: boolean; envoyes: number; retours: number; succes: number }
-interface HotItem { id: string; source: 'outreach' | 'lead-magnet'; name: string | null; campaign: string | null; provider_id: string | null; profile_url: string | null; when: string | null; rdv: boolean }
+interface HotItem { id: string; source: 'outreach' | 'lead-magnet'; name: string | null; campaign: string | null; company: string | null; provider_id: string | null; profile_url: string | null; when: string | null; rdv: boolean; last_inbound: string | null; handled: boolean; has_chat: boolean }
+interface Draft { messages: Array<{ text: string; is_sender: boolean; created_at: string }>; draft: string; calendly: string }
 interface Weekly { offset: number; label: string; canNext: boolean; dm: number; comment: number; replies: number; prev: { dm: number; replies: number } }
 interface Data {
   campaigns: Campaign[]
   weekly: Weekly
   engines: { comments: { active: boolean; posted_7j: number }; autoAccept: { active: boolean; accepted_7j: number } }
-  hot: { count: number; items: HotItem[] }
+  hot: { count: number; todo: number; items: HotItem[] }
 }
 
 export default function CockpitPage() {
@@ -20,6 +21,9 @@ export default function CockpitPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState('')
   const [week, setWeek] = useState(0)
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
+  const [editing, setEditing] = useState<Record<string, string>>({})
+  const [rtMsg, setRtMsg] = useState('')
 
   const load = useCallback(async (wk: number) => {
     setLoading(true)
@@ -45,7 +49,38 @@ export default function CockpitPage() {
     } finally { setBusy(null) }
   }
 
+  // Prépare la réponse IA (fil + brouillon) pour un item "à traiter".
+  const prepare = async (item: HotItem) => {
+    setBusy(item.id + 'prep')
+    try {
+      const d = await fetch(`/api/cockpit/reply?source=${item.source}&id=${item.id}`).then((r) => r.json())
+      if (d.error) { setErr(d.error); return }
+      setDrafts((p) => ({ ...p, [item.id]: d }))
+      setEditing((p) => ({ ...p, [item.id]: d.draft || '' }))
+    } finally { setBusy(null) }
+  }
+  // Envoie (ou passe) et clôt l'item.
+  const finish = async (item: HotItem, op: 'send' | 'skip') => {
+    setBusy(item.id + op)
+    try {
+      const d = await fetch('/api/cockpit/reply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: item.source, id: item.id, op, text: editing[item.id] || '' }),
+      }).then((r) => r.json())
+      if (d.error) { setErr(d.error); return }
+      setData((prev) => prev ? { ...prev, hot: { ...prev.hot, todo: Math.max(0, prev.hot.todo - 1), items: prev.hot.items.map((h) => h.id === item.id ? { ...h, handled: true } : h) } } : prev)
+    } finally { setBusy(null) }
+  }
+  const enableRealtime = async () => {
+    setBusy('rt'); setRtMsg('')
+    try {
+      const d = await fetch('/api/webhooks/unipile/register', { method: 'POST' }).then((r) => r.json())
+      setRtMsg(d.error ? 'Erreur : ' + d.error : d.already ? 'Temps réel déjà actif ✓' : 'Temps réel activé ✓ (les réponses arrivent ici instantanément)')
+    } finally { setBusy(null) }
+  }
+
   const w = data?.weekly
+  const todo = (data?.hot.items || []).filter((h) => !h.handled)
   const rate = w && w.dm > 0 ? Math.round((w.replies / w.dm) * 100) : null
 
   return (
@@ -64,6 +99,71 @@ export default function CockpitPage() {
 
       <div className="max-w-[1200px] mx-auto px-6 py-5 space-y-6">
         {err && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">Erreur : {err}</div>}
+
+        {/* 0. À TRAITER MAINTENANT — réponses reçues, réponse IA prête à envoyer */}
+        <section>
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h2 className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+              <Flame className="w-4 h-4 text-orange-500" /> À traiter maintenant
+              <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${todo.length ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'}`}>{todo.length}</span>
+            </h2>
+            <div className="flex items-center gap-2">
+              {rtMsg && <span className="text-[11px] text-gray-500">{rtMsg}</span>}
+              <button onClick={enableRealtime} disabled={busy === 'rt'} title="Déclare le webhook Unipile : chaque réponse arrive ici instantanément" className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">⚡ Activer le temps réel</button>
+            </div>
+          </div>
+          <div className="bg-white border border-orange-200 rounded-lg divide-y divide-gray-100">
+            {todo.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 text-sm">Rien en attente. Quand quelqu&apos;un répond, il apparaît ici avec une réponse prête. 👌</div>
+            ) : todo.map((h) => {
+              const d = drafts[h.id]
+              return (
+                <div key={h.id} className="px-3 py-3 text-sm space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${h.source === 'outreach' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'}`}>{h.source === 'outreach' ? 'Outreach' : 'Lead-magnet'}</span>
+                    <span className="font-medium text-gray-900">{h.name || 'Anonyme'}</span>
+                    {h.company && <span className="text-[11px] text-gray-500">· {h.company}</span>}
+                    {h.campaign && <span className="text-[11px] text-gray-400">· {h.campaign}</span>}
+                    {h.when && <span className="text-[11px] text-gray-400">· {formatDistanceToNow(h.when)}</span>}
+                    <span className="flex-1" />
+                    {h.profile_url && <a href={h.profile_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-600 hover:underline inline-flex items-center gap-0.5">profil <ExternalLink className="w-2.5 h-2.5" /></a>}
+                  </div>
+                  {h.last_inbound && (
+                    <div className="text-[13px] text-gray-800 bg-gray-50 border border-gray-100 rounded px-2.5 py-2">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mr-1.5">Sa réponse</span>{h.last_inbound}
+                    </div>
+                  )}
+                  {!d ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button onClick={() => prepare(h)} disabled={busy === h.id + 'prep' || !h.has_chat} className="text-[11px] px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1">
+                        {busy === h.id + 'prep' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '✍️'} Préparer la réponse
+                      </button>
+                      {!h.rdv && <button onClick={() => act(h, 'rdv')} className="text-[11px] px-2 py-1 border border-green-200 text-green-700 rounded hover:bg-green-50 inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> RDV pris</button>}
+                      <button onClick={() => finish(h, 'skip')} className="text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50">Déjà traité</button>
+                      {!h.has_chat && <span className="text-[10px] text-gray-400">(pas de fil connu — réponds sur LinkedIn)</span>}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="max-h-40 overflow-y-auto space-y-1 text-[12px]">
+                        {d.messages.slice(-6).map((m, i) => (
+                          <div key={i} className={`px-2 py-1 rounded ${m.is_sender ? 'bg-blue-50 text-blue-900 ml-6' : 'bg-gray-100 text-gray-800 mr-6'}`}>{m.text}</div>
+                        ))}
+                      </div>
+                      <textarea value={editing[h.id] ?? ''} onChange={(e) => setEditing((p) => ({ ...p, [h.id]: e.target.value }))} rows={3} className="w-full border border-blue-200 rounded px-2.5 py-2 text-[13px]" />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button onClick={() => finish(h, 'send')} disabled={busy === h.id + 'send'} className="text-[11px] px-2.5 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">📨 Envoyer</button>
+                        {d.calendly && <button onClick={() => setEditing((p) => ({ ...p, [h.id]: `${(p[h.id] || '').trim()}\n${d.calendly}`.trim() }))} className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50">+ lien Calendly</button>}
+                        {!h.rdv && <button onClick={() => act(h, 'rdv')} className="text-[11px] px-2 py-1 border border-green-200 text-green-700 rounded hover:bg-green-50">RDV pris</button>}
+                        <button onClick={() => finish(h, 'skip')} className="text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50">Passer</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1">Ouvre cette page à ton créneau de setting : tout ce qui a répondu est là, avec une réponse dans ta voix à valider en 1 clic.</p>
+        </section>
 
         {/* A. Campagnes — tunnel Envoyés → Retours → Succès */}
         <section>
@@ -159,7 +259,7 @@ export default function CockpitPage() {
         {/* D. Leads chauds → CRM */}
         <section>
           <h2 className="text-sm font-medium text-gray-900 mb-2 flex items-center gap-1.5">
-            <Flame className="w-4 h-4 text-orange-500" /> À traiter — ont répondu {data && <span className="text-[11px] font-normal text-gray-500">({data.hot.count})</span>}
+            <Flame className="w-4 h-4 text-gray-400" /> Historique — ont répondu {data && <span className="text-[11px] font-normal text-gray-500">({data.hot.count})</span>}
           </h2>
           <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
             {!data || data.hot.items.length === 0 ? (

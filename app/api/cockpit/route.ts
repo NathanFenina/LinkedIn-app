@@ -84,31 +84,39 @@ export async function GET(request: Request) {
     const lmMap = new Map((lmCampaigns || []).map((c) => [c.id, c.name]))
     const { data: outReplied } = await db
       .from('outreach_targets')
-      .select('id,name,provider_id,chat_id,campaign_id,replied_at,rdv')
+      .select('id,name,provider_id,chat_id,campaign_id,replied_at,rdv,last_inbound,replied_handled_at,company')
       .eq('status', 'replied')
       .order('replied_at', { ascending: false, nullsFirst: false })
-      .limit(40)
+      .limit(60)
     const { data: lmReplied } = await db
       .from('lead_magnet_sends')
-      .select('id,commenter_name,commenter_provider_id,commenter_profile_url,campaign_id,replied_at,rdv')
+      .select('id,commenter_name,commenter_provider_id,commenter_profile_url,campaign_id,replied_at,rdv,last_inbound,replied_handled_at,chat_id')
       .eq('replied', true)
       .order('replied_at', { ascending: false, nullsFirst: false })
-      .limit(40)
+      .limit(60)
 
+    // "À traiter" = a répondu et pas encore traité ; les traités restent visibles
+    // en dessous (historique), les non-traités d'abord.
     const hot = [
       ...(outReplied || []).map((r) => ({
         id: r.id as string, source: 'outreach' as const,
         name: r.name as string | null, campaign: outMap.get(r.campaign_id) || null,
+        company: (r.company as string | null) || null,
         provider_id: r.provider_id as string | null, profile_url: null as string | null,
         when: r.replied_at as string | null, rdv: !!r.rdv,
+        last_inbound: (r.last_inbound as string | null) || null,
+        handled: !!r.replied_handled_at, has_chat: !!r.chat_id,
       })),
       ...(lmReplied || []).map((r) => ({
         id: r.id as string, source: 'lead-magnet' as const,
         name: r.commenter_name as string | null, campaign: lmMap.get(r.campaign_id) || null,
+        company: null as string | null,
         provider_id: r.commenter_provider_id as string | null, profile_url: r.commenter_profile_url as string | null,
         when: r.replied_at as string | null, rdv: !!r.rdv,
+        last_inbound: (r.last_inbound as string | null) || null,
+        handled: !!r.replied_handled_at, has_chat: !!r.chat_id,
       })),
-    ].sort((a, b) => (b.when || '').localeCompare(a.when || ''))
+    ].sort((a, b) => Number(a.handled) - Number(b.handled) || (b.when || '').localeCompare(a.when || ''))
 
     return Response.json({
       campaigns: [...outreach, ...leadmagnets],
@@ -125,7 +133,7 @@ export async function GET(request: Request) {
         comments: { active: commentsActive, posted_7j: commentsPosted7j },
         autoAccept: { active: !!autoCfg?.enabled, accepted_7j: accepted7j },
       },
-      hot: { count: hot.length, items: hot.slice(0, 40) },
+      hot: { count: hot.length, todo: hot.filter((h) => !h.handled).length, items: hot.slice(0, 60) },
     })
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })

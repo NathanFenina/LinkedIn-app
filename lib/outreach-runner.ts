@@ -431,9 +431,15 @@ export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
       checked++
       try {
         const msgs = await getChatMessages(t.chat_id as string, 15)
-        const replied = msgs.some((m) => !(m.is_sender === 1 || m.is_sender === true))
-        if (replied) {
-          await db.from('outreach_targets').update({ status: 'replied', replied_at: new Date().toISOString() }).eq('id', t.id)
+        const inbound = msgs.filter((m) => !(m.is_sender === 1 || m.is_sender === true))
+        if (inbound.length) {
+          const last = inbound[0] as { text?: string; timestamp?: string }
+          await db.from('outreach_targets').update({
+            status: 'replied',
+            replied_at: last.timestamp || new Date().toISOString(),
+            last_inbound: (last.text || '').slice(0, 2000) || null,
+            last_inbound_at: last.timestamp || new Date().toISOString(),
+          }).eq('id', t.id)
           replies++
         }
       } catch { /* fil illisible → on réessaiera au prochain passage */ }
