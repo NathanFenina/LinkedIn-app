@@ -8,13 +8,26 @@ export const maxDuration = 300
 // Sourcer une campagne À PARTIR D'UNE LISTE D'ENTREPRISES (ex: boîtes qui ont
 // levé). Pour chaque société : résout l'entreprise LinkedIn → cherche le/les
 // décideur(s) marketing → insère en 'sourced' (dédup + do_not_contact).
-// Priorise les décideurs marketing sur la tagline.
-function roleScore(headline: string | null): number {
+// Qui viser dans la boîte ? 'marketing' = décideurs marketing/growth,
+// 'founder' = fondateurs/CEO (petites boîtes : c'est eux qui décident),
+// 'both' = les deux (multi-thread : 2 portes d'entrée par boîte).
+type Roles = 'marketing' | 'founder' | 'both'
+function roleScore(headline: string | null, roles: Roles): number {
   const h = (headline || '').toLowerCase()
-  if (/\b(cmo|chief marketing|directeur marketing|directrice marketing|head of marketing|vp marketing|vice president marketing)\b/.test(h)) return 10
-  if (/\b(responsable marketing|marketing manager|brand manager|growth|acquisition|demand gen)\b/.test(h)) return 7
-  if (/marketing/.test(h)) return 5
-  return 2
+  const mkt = (() => {
+    if (/\b(cmo|chief marketing|directeur marketing|directrice marketing|head of marketing|vp marketing|vice president marketing|head of growth|vp growth|chief growth)\b/.test(h)) return 10
+    if (/\b(responsable marketing|marketing manager|brand manager|growth|acquisition|demand gen)\b/.test(h)) return 7
+    if (/marketing/.test(h)) return 5
+    return 0
+  })()
+  const fnd = (() => {
+    if (/\b(ceo|founder|fondateur|fondatrice|co-?founder|co-?fondateur|co-?fondatrice|pdg|président|présidente|gérant|gérante|dirigeant|dirigeante|managing director|directeur général|directrice générale)\b/.test(h)) return 9
+    if (/\b(coo|cro|chief revenue|directeur commercial|head of sales)\b/.test(h)) return 6
+    return 0
+  })()
+  if (roles === 'marketing') return mkt || 2
+  if (roles === 'founder') return fnd || 2
+  return Math.max(mkt, fnd) || 2
 }
 
 type Person = {
@@ -29,6 +42,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     ? body.companies.map((c: unknown) => String(c || '').trim()).filter(Boolean)
     : []
   const perCompany = Math.max(1, Math.min(3, Number(body.per_company) || 2))
+  const roles: Roles = (['marketing', 'founder', 'both'] as const).includes(body.roles) ? body.roles : 'both'
+  const kw = roles === 'founder' ? 'CEO founder fondateur' : roles === 'marketing' ? 'marketing' : 'marketing OR CEO OR founder'
   if (!companies.length) return Response.json({ error: 'Aucune entreprise fournie' }, { status: 400 })
 
   try {
@@ -67,7 +82,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
           if (r.items?.length) people = r.items
         } catch { /* on tente le fallback */ }
       }
-      await trySearch({ category: 'people', keywords: 'marketing', limit: 25, extra: { company: [companyId] } })
+      await trySearch({ category: 'people', keywords: kw, limit: 25, extra: { company: [companyId] } })
+      if (roles === 'both') await trySearch({ category: 'people', keywords: 'marketing', limit: 25, extra: { company: [companyId] } })
       await trySearch({ category: 'people', limit: 25, extra: { company: [companyId] } })
       if (!people.length) { notfound++; notFoundList.push(company); continue }
 
@@ -78,7 +94,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
           name: p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
           headline: p.headline || null,
           profile_url: p.profile_url || null,
-          score: roleScore(p.headline || null),
+          score: roleScore(p.headline || null, roles),
         }))
         .filter((p) => p.provider_id && p.score >= 5)
         .sort((a, b) => b.score - a.score)

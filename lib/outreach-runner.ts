@@ -446,6 +446,51 @@ export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
       }
     } catch { /* balayage indisponible → on continue avec ce qu'on a */ }
   }
+  // Lead-magnets : mêmes backfills (chat_id manquants → relances enfin possibles)
+  // + détection des réponses postérieures à l'envoi.
+  try {
+    const { data: lmNoChat } = await db
+      .from('lead_magnet_sends')
+      .select('id, commenter_provider_id')
+      .is('chat_id', null)
+      .not('message_sent', 'ilike', '[%')
+      .not('commenter_provider_id', 'is', null)
+      .limit(500)
+    if (lmNoChat?.length) {
+      if (!chatMap) chatMap = await sweepChats(await accountFor(db, null), 30)
+      for (const s of lmNoChat) {
+        const cid = chatMap.get(s.commenter_provider_id as string)
+        if (cid) await db.from('lead_magnet_sends').update({ chat_id: cid }).eq('id', s.id)
+      }
+    }
+    const { data: lmPending } = await db
+      .from('lead_magnet_sends')
+      .select('id, chat_id, sent_at')
+      .eq('replied', false)
+      .not('chat_id', 'is', null)
+      .not('message_sent', 'ilike', '[%')
+      .limit(500)
+    for (const s of lmPending || []) {
+      checked++
+      try {
+        const msgs = await getChatMessages(s.chat_id as string, 15)
+        const since = (s.sent_at as string | null) || ''
+        const inbound = (msgs as Array<{ text?: string; timestamp?: string; is_sender?: number | boolean }>)
+          .filter((m) => !(m.is_sender === 1 || m.is_sender === true))
+          .filter((m) => !since || ((m.timestamp || '') > since))
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+        if (inbound.length) {
+          const last = inbound[0]
+          await db.from('lead_magnet_sends').update({
+            replied: true, replied_at: last.timestamp || new Date().toISOString(),
+            last_inbound: (last.text || '').slice(0, 2000) || null, last_inbound_at: last.timestamp || new Date().toISOString(),
+          }).eq('id', s.id)
+          replies++
+        }
+      } catch { /* fil illisible → prochain passage */ }
+    }
+  } catch { /* lead-magnets indisponibles → on continue */ }
+
   for (const c of campaigns || []) {
     // Cibles contactées sans réponse connue + cibles déjà 'replied' dont on n'a
     // pas encore le texte de la réponse (backfill pour "À traiter maintenant").

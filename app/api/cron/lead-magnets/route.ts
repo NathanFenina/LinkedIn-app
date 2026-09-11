@@ -135,7 +135,11 @@ async function trySendFollowup(
     let replied = false
     try {
       const msgs = await getChatMessages(due.chat_id as string, 15)
-      replied = msgs.some((m) => !(m.is_sender === 1 || m.is_sender === true))
+      // Réponse = message entrant POSTÉRIEUR à notre envoi (un vieux fil ne compte pas).
+      const since = (due.sent_at as string | null) || ''
+      replied = (msgs as Array<{ timestamp?: string; is_sender?: number | boolean }>).some(
+        (m) => !(m.is_sender === 1 || m.is_sender === true) && (!since || (m.timestamp || '') > since)
+      )
     } catch {
       // Lecture impossible → on ne prend pas le risque de relancer un répondeur.
       // On sort des relances pour ce tour (les 1ers messages, eux, continuent).
