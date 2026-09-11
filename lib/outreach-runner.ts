@@ -26,9 +26,16 @@ export function companyFromHeadline(headline: string | null): string | null {
   if (!h) return null
   const m = h.match(/(?:@|\bchez\b|\bat\b|·)\s*([^|·@,()\-–—]{2,40})/i)
   if (!m) return null
-  const c = m[1].trim().replace(/\s+(ex-?.*)$/i, '').trim()
-  // Écarte les faux positifs évidents (mots génériques, trop court).
-  if (c.length < 2 || /^(the|la|le|les|un|une|home|remote|freelance|indépendant)$/i.test(c)) return null
+  const c = m[1]
+    .trim()
+    .replace(/\s+(ex-?.*)$/i, '')
+    .replace(/[^\p{L}\p{N}).&'’-]+$/u, '') // emojis / symboles en fin ("Electra ⚡")
+    .trim()
+  // Écarte les faux positifs : trop court, mots vides, ou intitulé de poste
+  // générique pris pour une boîte ("Growth Marketing", "SEO").
+  if (c.length < 2) return null
+  if (/^(the|la|le|les|un|une|home|remote|freelance|indépendant)$/i.test(c)) return null
+  if (/^(growth|marketing|seo|digital|acquisition|consultant|freelance|content|brand|performance)( (marketing|growth|seo|digital|manager|hacker|specialist))*$/i.test(c)) return null
   return c
 }
 
