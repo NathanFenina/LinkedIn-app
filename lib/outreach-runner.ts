@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages, getChats, getConnections, sendLinkedInInvitation } from '@/lib/unipile'
-import { scoreProfile } from '@/lib/gemini'
+import { scoreProfile, generateIcebreaker } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
 import { guard } from '@/lib/limits'
 import type { OutreachCampaign } from '@/types'
@@ -390,7 +390,19 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   const g = await guard(db, accountId, 'dm')
   if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
   try {
-    const text = personalize(campaign.msg1, appr.name, appr.company || companyFromHeadline(appr.headline))
+    const company = appr.company || companyFromHeadline(appr.headline)
+    let text = personalize(campaign.msg1, appr.name, company)
+    // {accroche} : 1re ligne unique par prospect (icebreaker IA), générée au
+    // moment de l'envoi et mémorisée. Si l'IA n'a rien de concret, la ligne
+    // (et son retour à la ligne) disparaît proprement.
+    if (/\{accroche\}/i.test(text)) {
+      let ice = (appr.icebreaker as string | null) || ''
+      if (!ice) {
+        ice = await generateIcebreaker({ name: appr.name, headline: appr.headline, company, offerContext: DEFAULT_CONTEXT })
+        if (ice) await db.from('outreach_targets').update({ icebreaker: ice }).eq('id', appr.id)
+      }
+      text = ice ? text.replace(/\{accroche\}/gi, ice) : text.replace(/[ \t]*\{accroche\}[ \t]*\n?/gi, '')
+    }
     // Conversation déjà ouverte (détectée au sourcing) → on continue le fil au
     // lieu d'en créer un doublon.
     let chatId = appr.chat_id as string | null

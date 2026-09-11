@@ -605,6 +605,38 @@ Renvoie UNIQUEMENT un tableau JSON (sans markdown, sans backticks), un objet par
   }
 }
 
+// Icebreaker : UNE phrase d'accroche unique par prospect, déduite de sa tagline
+// / sa boîte (à la lemlist), insérée via {accroche} dans le msg1. Jamais de
+// flatterie vide, jamais d'invention : si rien de concret, renvoie ''.
+export async function generateIcebreaker(params: {
+  name: string | null
+  headline: string | null
+  company: string | null
+  offerContext: string
+}): Promise<string> {
+  const first = (params.name || '').split(' ')[0] || ''
+  const prompt = `Tu es Nathan Fenina (Decupler, SEO & visibilité dans les réponses IA). Tu écris UNE phrase d'accroche (max 20 mots) pour ouvrir un message LinkedIn à ${first || 'cette personne'}.
+TAGLINE DE LA PERSONNE : "${params.headline || ''}"
+SA BOÎTE : ${params.company || '(inconnue)'}
+CE QUE TU PROPOSES (contexte, ne le pitch pas) : ${params.offerContext}
+
+Règles :
+- minuscules, ton parlé, 1 seule phrase, pas d'emoji, pas de point d'exclamation.
+- elle doit s'appuyer sur un ÉLÉMENT CONCRET de la tagline ou de la boîte (secteur, rôle, produit). Rien de générique ("j'adore ce que vous faites" = interdit).
+- pas de flatterie, pas de question, pas de pitch. Juste un pont naturel vers le sujet visibilité / acquisition.
+- si la tagline est vide ou ne donne rien d'exploitable, réponds exactement : NONE
+
+Réponds UNIQUEMENT avec la phrase (ou NONE).`
+  try {
+    const result = await model.generateContent(prompt)
+    const out = result.response.text().trim().replace(/^["'«»]+|["'«»]+$/g, '').trim()
+    if (!out || /^none$/i.test(out) || out.length > 180) return ''
+    return out
+  } catch {
+    return ''
+  }
+}
+
 export async function generateReply(params: {
   contactName: string
   jobTitle: string | null

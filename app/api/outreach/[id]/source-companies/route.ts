@@ -43,6 +43,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     : []
   const perCompany = Math.max(1, Math.min(3, Number(body.per_company) || 2))
   const roles: Roles = (['marketing', 'founder', 'both'] as const).includes(body.roles) ? body.roles : 'both'
+  // Étiquette de provenance (ex: 'Annonceur pub', 'Recrute en SEO') → visible dans le score_reason.
+  const label = String(body.label || 'Décideur marketing').trim().slice(0, 40)
   const kw = roles === 'founder' ? 'CEO founder fondateur' : roles === 'marketing' ? 'marketing' : 'marketing OR CEO OR founder'
   if (!companies.length) return Response.json({ error: 'Aucune entreprise fournie' }, { status: 400 })
 
@@ -114,7 +116,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
           company,
           profile_url: p.profile_url,
           score: p.score,
-          score_reason: `Décideur marketing @ ${company}`,
+          score_reason: `${label} @ ${company}`,
           status: 'sourced',
         })
         if (!insErr) added++
