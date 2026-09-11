@@ -95,6 +95,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
           provider_id: p.provider_id,
           name: p.name,
           headline: p.headline ? `${p.headline} · ${company}` : company,
+          company,
           profile_url: p.profile_url,
           score: p.score,
           score_reason: `Décideur marketing @ ${company}`,

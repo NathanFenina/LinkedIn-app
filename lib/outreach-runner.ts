@@ -18,9 +18,29 @@ async function accountFor(db: Db, linkedin_account_id: string | null): Promise<s
   return getActiveAccountId()
 }
 
-function personalize(tpl: string, name: string | null): string {
+// Devine l'entreprise depuis la tagline LinkedIn ("CMO @ Acme", "Head of
+// Marketing chez Acme | ex-X", "Growth · Acme"). Renvoie null si rien de
+// fiable — on ne veut JAMAIS d'un faux nom de boîte dans un message.
+export function companyFromHeadline(headline: string | null): string | null {
+  const h = (headline || '').replace(/\s+/g, ' ').trim()
+  if (!h) return null
+  const m = h.match(/(?:@|\bchez\b|\bat\b|·)\s*([^|·@,()\-–—]{2,40})/i)
+  if (!m) return null
+  const c = m[1].trim().replace(/\s+(ex-?.*)$/i, '').trim()
+  // Écarte les faux positifs évidents (mots génériques, trop court).
+  if (c.length < 2 || /^(the|la|le|les|un|une|home|remote|freelance|indépendant)$/i.test(c)) return null
+  return c
+}
+
+// {prenom} = 1er mot du nom, {nom} = nom complet, {entreprise} = boîte connue
+// sinon repli neutre "ta boîte" (jamais de placeholder brut envoyé).
+function personalize(tpl: string, name: string | null, company?: string | null): string {
   const first = (name || '').split(' ')[0] || ''
-  return (tpl || '').replace(/\{prenom\}/gi, first).replace(/\{nom\}/gi, name || '')
+  const ent = (company || '').trim() || 'ta boîte'
+  return (tpl || '')
+    .replace(/\{prenom\}/gi, first)
+    .replace(/\{nom\}/gi, name || '')
+    .replace(/\{entreprise\}/gi, ent)
 }
 
 // Balaye les conversations LinkedIn et renvoie provider_id → chat_id. Source de
@@ -178,6 +198,7 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
       headline: p.headline,
       profile_url: p.profile_url,
       public_identifier: p.public_identifier,
+      company: companyFromHeadline(p.headline),
       score,
       score_reason: reason,
       status: 'sourced',
@@ -298,7 +319,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       const g = await guard(db, accountId, 'dm')
       if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
       try {
-        const text = personalize(campaign.msg2, due.name)
+        const text = personalize(campaign.msg2, due.name, due.company || companyFromHeadline(due.headline))
         await sendMessage(due.chat_id, text)
         // 'msg2_sent' = relance envoyée, séquence terminée (statut distinct de
         // 'done' pour que tu voies dans le Suivi qui a reçu 1 vs 2 messages).
@@ -342,7 +363,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     const gi = await guard(db, accountId, 'invite')
     if (!gi.allowed) return { sent: 0, skipped_reason: gi.reason }
     try {
-      const note = personalize(campaign.invite_note || '', toInvite.name).slice(0, 290)
+      const note = personalize(campaign.invite_note || '', toInvite.name, toInvite.company || companyFromHeadline(toInvite.headline)).slice(0, 290)
       await sendLinkedInInvitation(accountId, toInvite.provider_id, note || undefined)
       await db.from('outreach_targets').update({ status: 'invited', invited_at: new Date().toISOString() }).eq('id', toInvite.id)
       return { sent: 1, step: 'invite', target: toInvite.name }
@@ -357,7 +378,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   const g = await guard(db, accountId, 'dm')
   if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
   try {
-    const text = personalize(campaign.msg1, appr.name)
+    const text = personalize(campaign.msg1, appr.name, appr.company || companyFromHeadline(appr.headline))
     // Conversation déjà ouverte (détectée au sourcing) → on continue le fil au
     // lieu d'en créer un doublon.
     let chatId = appr.chat_id as string | null
