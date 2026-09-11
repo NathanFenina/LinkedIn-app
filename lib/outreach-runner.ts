@@ -309,7 +309,12 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       let replied = false
       try {
         const msgs = await getChatMessages(due.chat_id, 15)
-        replied = msgs.some((m) => !(m.is_sender === 1 || m.is_sender === true))
+        // Réponse = message entrant POSTÉRIEUR à notre msg1 (un vieux fil
+        // d'avant la campagne ne compte pas, sinon on ne relance jamais).
+        const since = (due.last_sent_at as string | null) || ''
+        replied = (msgs as Array<{ timestamp?: string; is_sender?: number | boolean }>).some(
+          (m) => !(m.is_sender === 1 || m.is_sender === true) && (!since || (m.timestamp || '') > since)
+        )
       } catch {
         // Lecture impossible (erreur transitoire) : on NE prend PAS le risque de
         // relancer quelqu'un qui aurait répondu. On laisse la cible en
@@ -446,7 +451,7 @@ export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
     // pas encore le texte de la réponse (backfill pour "À traiter maintenant").
     const { data: pending } = await db
       .from('outreach_targets')
-      .select('id, chat_id')
+      .select('id, chat_id, last_sent_at')
       .eq('campaign_id', c.id)
       .in('status', ['msg1_sent', 'msg2_sent', 'done'])
       .is('replied_at', null)
@@ -454,7 +459,7 @@ export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
       .limit(500)
     const { data: repliedNoText } = await db
       .from('outreach_targets')
-      .select('id, chat_id')
+      .select('id, chat_id, last_sent_at')
       .eq('campaign_id', c.id)
       .eq('status', 'replied')
       .is('last_inbound', null)
@@ -465,9 +470,16 @@ export async function sweepReplies(db: Db): Promise<SweepRepliesResult> {
       checked++
       try {
         const msgs = await getChatMessages(t.chat_id as string, 15)
-        const inbound = msgs.filter((m) => !(m.is_sender === 1 || m.is_sender === true))
+        // Une VRAIE réponse = message entrant POSTÉRIEUR à notre dernier envoi.
+        // (Beaucoup de 1res connexions ont un vieux fil : sans ce filtre, on
+        // comptait des conversations d'avant la campagne comme des réponses.)
+        const since = (t.last_sent_at as string | null) || ''
+        const inbound = (msgs as Array<{ text?: string; timestamp?: string; is_sender?: number | boolean }>)
+          .filter((m) => !(m.is_sender === 1 || m.is_sender === true))
+          .filter((m) => !since || ((m.timestamp || '') > since))
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
         if (inbound.length) {
-          const last = inbound[0] as { text?: string; timestamp?: string }
+          const last = inbound[0]
           await db.from('outreach_targets').update({
             status: 'replied',
             replied_at: last.timestamp || new Date().toISOString(),
