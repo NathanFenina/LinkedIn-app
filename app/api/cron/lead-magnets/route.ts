@@ -176,6 +176,10 @@ async function sendOne(
   db: ReturnType<typeof getServerSupabase>,
   campaignId: string | null
 ): Promise<SendResult> {
+  // Jamais d'envoi le dimanche (heure de Paris).
+  if (new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date()) === 'Sun') {
+    return { sent: 0, reason: 'Dimanche : pas d’envoi' }
+  }
   let q = db.from('lead_magnet_campaigns').select('*').eq('active', true)
   if (campaignId) q = q.eq('id', campaignId)
   else q = q.eq('auto_run', true)

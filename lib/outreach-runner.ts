@@ -39,6 +39,20 @@ export function companyFromHeadline(headline: string | null): string | null {
   return c
 }
 
+export function isSundayParis(): boolean {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date()) === 'Sun'
+}
+
+// Variantes de msg1 : dans le champ, sépare les versions par une ligne "===".
+// On en tire une AU HASARD par prospect (rotation anti-spam + A/B), et on
+// mémorise l'index (colonne variant) pour comparer les taux de réponse.
+export function pickVariant(text: string | null): { text: string; variant: number } {
+  const parts = (text || '').split(/\n\s*={3,}\s*\n/).map((s) => s.trim()).filter(Boolean)
+  if (parts.length <= 1) return { text: (text || '').trim(), variant: 0 }
+  const i = Math.floor(Math.random() * parts.length)
+  return { text: parts[i], variant: i }
+}
+
 // {prenom} = 1er mot du nom, {nom} = nom complet, {entreprise} = boîte connue
 // sinon repli neutre "ta boîte" (jamais de placeholder brut envoyé).
 function personalize(tpl: string, name: string | null, company?: string | null): string {
@@ -244,6 +258,9 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     if (!inWindow) return { sent: 0, skipped_reason: `Hors plage horaire (${s}h-${e}h, il est ${h}h à Paris)` }
   }
 
+  // Jamais d'envoi le dimanche (heure de Paris), même en déclenchement manuel.
+  if (isSundayParis()) return { sent: 0, skipped_reason: 'Dimanche : pas d’envoi' }
+
   const sentToday = await sentTodayCount(db, campaign.id)
   if (sentToday >= (campaign.daily_cap || 15)) {
     return { sent: 0, skipped_reason: `Plafond campagne atteint (${sentToday}/${campaign.daily_cap})` }
@@ -391,7 +408,8 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
   try {
     const company = appr.company || companyFromHeadline(appr.headline)
-    let text = personalize(campaign.msg1, appr.name, company)
+    const picked = pickVariant(campaign.msg1)
+    let text = personalize(picked.text, appr.name, company)
     // {accroche} : 1re ligne unique par prospect (icebreaker IA), générée au
     // moment de l'envoi et mémorisée. Si l'IA n'a rien de concret, la ligne
     // (et son retour à la ligne) disparaît proprement.
@@ -416,6 +434,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     const nextAt = new Date(Date.now() + (campaign.followup_days || 3) * 86400000).toISOString()
     await db.from('outreach_targets').update({
       status: campaign.msg2 ? 'msg1_sent' : 'done',
+      variant: picked.variant,
       chat_id: chatId,
       last_sent_at: new Date().toISOString(),
       next_action_at: campaign.msg2 ? nextAt : null,

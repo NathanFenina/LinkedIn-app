@@ -130,6 +130,10 @@ export async function POST(request: Request) {
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  // Jamais de message le dimanche (heure de Paris).
+  if (new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date()) === 'Sun') {
+    return Response.json({ ok: true, sent: 0, accepted: 0, reason: 'Dimanche : pas d’envoi' })
+  }
   try {
     const db = getServerSupabase()
     const result = await acceptOne(db)

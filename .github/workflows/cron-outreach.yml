@@ -12,9 +12,9 @@ on:
     # Chaque campagne n'envoie que dans SA fenêtre horaire (active_hour_start) →
     # CMO démarre à 14h, SEO à 15h, la 3e à 16h. Les plafonds/jour évitent tout
     # doublon d'envoi entre les sessions. (En hiver CET=UTC+1, décalage +1h.)
-    - cron: '0 12 * * *'
-    - cron: '0 13 * * *'
-    - cron: '0 14 * * *'
+    - cron: '0 12 * * 1-6'
+    - cron: '0 13 * * 1-6'
+    - cron: '0 14 * * 1-6'
   workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
 jobs:
   session:

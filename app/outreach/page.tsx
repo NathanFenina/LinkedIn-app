@@ -389,7 +389,7 @@ export default function OutreachPage() {
             )}
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600">Message initial — envoyé {inviteFirst ? 'une fois l’invitation acceptée' : 'à tous'} · <span className="text-gray-400">{'{prenom}'} = prénom auto</span></label>
+            <label className="text-xs font-medium text-gray-600">Message initial — envoyé {inviteFirst ? 'une fois l’invitation acceptée' : 'à tous'} · <span className="text-gray-400">{'{prenom}'} · {'{entreprise}'} · {'{accroche}'} (1re ligne IA) · plusieurs versions séparées par une ligne <code>===</code> = rotation aléatoire</span></label>
             <textarea value={msg1} onChange={(e) => setMsg1(e.target.value)} required rows={3} placeholder="salut {prenom}, je vois qu'on est connectés…"
               className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
@@ -565,7 +565,7 @@ export default function OutreachPage() {
                   <input value={sName} onChange={(e) => { setSName(e.target.value); setDirty(true) }} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Message initial — envoyé à tous · <span className="text-gray-400">{'{prenom}'}</span></label>
+                  <label className="text-xs font-medium text-gray-600">Message initial · <span className="text-gray-400">{'{prenom}'} · {'{entreprise}'} · {'{accroche}'} (1re ligne IA) · versions séparées par une ligne <code>===</code> = rotation aléatoire</span></label>
                   <textarea value={sMsg1} onChange={(e) => { setSMsg1(e.target.value); setDirty(true) }} rows={3} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
