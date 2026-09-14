@@ -1,46 +1,47 @@
 name: Outbound Sequencer Session
-# Session groupée du séquenceur outbound : envoie les DM (message initial +
-# relances dues) un par un, espacés d'un délai aléatoire de 4-6 min — comme
-# une vraie personne. Tourne sur le runner GitHub Actions (jusqu'à 6h/job),
-# donc PAS de serveur à maintenir et PAS de limite 300s Vercel. L'app ne fait
-# que "avance d'un cran" à chaque appel ; c'est cette boucle qui gère
-# l'espacement. Les garde-fous (limits.ts) bloquent si le plafond LinkedIn est
-# atteint, donc c'est sûr même si la boucle tourne longtemps.
+# Session d'envoi outbound : UNE session par jour, déclenchée à 14h00 (Paris)
+# pile par le cron Vercel (/api/cron/dispatch-outreach) — les crons GitHub ont
+# 2-4 h de retard, celui de 12h UTC ci-dessous n'est qu'un filet de sécurité.
+# La session reste ouverte jusqu'à 20h Paris : elle envoie 1 message toutes les
+# 4-6 min quand une campagne est dans sa fenêtre, et re-vérifie toutes les 5 min
+# sinon → CMO démarre à 14h, SEO à 15h, 2e degré + Reprise à 16h, sans retard.
+# Repo public → minutes GitHub Actions illimitées.
 on:
   schedule:
-    # Départs décalés (heure de Paris en été CEST = UTC+2) : 14h, 15h, 16h.
-    # Chaque campagne n'envoie que dans SA fenêtre horaire (active_hour_start) →
-    # CMO démarre à 14h, SEO à 15h, la 3e à 16h. Les plafonds/jour évitent tout
-    # doublon d'envoi entre les sessions. (En hiver CET=UTC+1, décalage +1h.)
-    - cron: '0 12 * * 1-6'
-    - cron: '0 13 * * 1-6'
-    - cron: '0 14 * * 1-6'
-  workflow_dispatch:        # bouton "Run workflow" pour lancer une session à la demande
+    - cron: '0 12 * * 1-6'   # filet (retard possible) ; le vrai départ = cron Vercel 12:00 UTC
+  workflow_dispatch:
+    inputs:
+      campaign_id:
+        description: 'ID de campagne (vide = toutes les campagnes actives)'
+        required: false
+        default: ''
+concurrency:
+  group: outbound-session
+  cancel-in-progress: false   # jamais deux sessions en parallèle (pas de double envoi)
 jobs:
   session:
     runs-on: ubuntu-latest
-    timeout-minutes: 350    # garde-fou (< 6h)
+    timeout-minutes: 420
     steps:
-      - name: Run outbound session
+      - name: Run outbound session (14h → 20h Paris)
         env:
           APP_URL: https://linked-in-app-black.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          for i in $(seq 1 40); do
-            resp=$(curl -fsSL -X POST \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              "$APP_URL/api/cron/outreach")
-            echo "[$i] $resp"
-
+          url="$APP_URL/api/cron/outreach"
+          # Fin de session : 18:00 UTC (= 20h Paris en été). Garde-fou : 6h max.
+          end=$(( $(date -u -d 'today 18:00' +%s) ))
+          [ $(date -u +%s) -ge $end ] && end=$(( $(date -u +%s) + 3600 ))
+          i=0
+          while [ $(date -u +%s) -lt $end ]; do
+            i=$((i+1))
+            resp=$(curl -fsSL -X POST -H "Authorization: Bearer $CRON_SECRET" "$url" || echo '{"sent":0}')
+            echo "[$i $(date -u +%H:%M)] $resp"
             sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
-
-            # Round sans envoi (rien d'approuvé, aucune relance due, ou plafond
-            # atteint sur toutes les campagnes) → fin de session.
-            if [ "${sent:-0}" = "0" ]; then
-              echo "Session terminée (sent=$sent)."
-              break
+            if [ "${sent:-0}" = "1" ]; then
+              sleep $(( ( RANDOM % 121 ) + 240 ))   # 4-6 min entre deux envois
+            else
+              sleep 300                              # rien à envoyer maintenant → on re-vérifie dans 5 min
             fi
-
-            # Espacement aléatoire 240-360s (4-6 min) avant le prochain envoi.
-            sleep $(( ( RANDOM % 121 ) + 240 ))
           done
+          echo "Session terminée (20h Paris)."
