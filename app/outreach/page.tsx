@@ -52,6 +52,7 @@ export default function OutreachPage() {
   const [showCompanies, setShowCompanies] = useState(false)
   const [companiesText, setCompaniesText] = useState('')
   const [adKeywords, setAdKeywords] = useState('')
+  const [jobKeywords, setJobKeywords] = useState('')
   const [pubStatus, setPubStatus] = useState<{ status?: string; conclusion?: string | null; started_at?: string; html_url?: string; available?: boolean; none?: boolean } | null>(null)
 
   // create form
@@ -197,6 +198,20 @@ export default function OutreachPage() {
         setShowCompanies(false); setCompaniesText('')
         await loadTargets(id); await fetchCampaigns()
       }
+    } finally { setBusy(null) }
+  }
+
+  // Boîtes qui recrutent (offres LinkedIn) → remplit la liste d'entreprises à sourcer.
+  async function findHiring() {
+    const keywords = jobKeywords.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean)
+    if (!keywords.length) return
+    setBusy('jobs'); setMsg('')
+    try {
+      const d = await fetch('/api/outreach/hiring-companies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keywords, days: 30 }) }).then((r) => r.json())
+      if (d.error) { setMsg('Erreur offres : ' + d.error); return }
+      const names = (d.companies as Array<{ name: string }>).map((c) => c.name)
+      setCompaniesText((prev) => [prev.trim(), ...names].filter(Boolean).join('\n'))
+      setMsg(`🧲 ${names.length} boîtes qui recrutent (${d.jobs} offres analysées) — ajoutées à la liste, vire celles qui ne te parlent pas puis « Sourcer ces entreprises ».`)
     } finally { setBusy(null) }
   }
 
@@ -491,6 +506,15 @@ export default function OutreachPage() {
                 <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-3 space-y-2">
                   <div className="text-sm font-medium text-gray-800">🏢 Sourcer les décideurs par entreprise</div>
                   <p className="text-[11px] text-gray-500">Une entreprise par ligne (boîtes qui recrutent, qui ont levé, qui font de la pub…). L&apos;app résout chaque société sur LinkedIn et récupère jusqu&apos;à 2 décideurs (marketing / growth, ou fondateur-CEO si la boîte est petite).</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] text-gray-500">🧲 Boîtes qui recrutent (offres LinkedIn, 30 j) — rôles :</span>
+                    <input value={jobKeywords} onChange={(e) => setJobKeywords(e.target.value)} placeholder="ex: SEO, growth, responsable acquisition"
+                      className="flex-1 min-w-[220px] text-xs border border-gray-300 rounded px-2 py-1" />
+                    <button onClick={findHiring} disabled={busy === 'jobs' || !jobKeywords.trim()}
+                      className="text-xs px-2.5 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                      {busy === 'jobs' ? '…' : 'Chercher'}
+                    </button>
+                  </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] text-gray-500">📢 Trouver des annonceurs (pub Meta active, FR) :</span>
                     <input value={adKeywords} onChange={(e) => setAdKeywords(e.target.value)} placeholder="ex: logiciel B2B, e-commerce, formation"

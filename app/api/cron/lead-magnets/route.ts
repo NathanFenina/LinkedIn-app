@@ -150,6 +150,24 @@ async function trySendFollowup(
       continue // cible suivante
     }
 
+    // GARDE ANTI-DOUBLON : la même personne peut avoir plusieurs lignes (a
+    // commenté 2 posts / 2 campagnes). Si elle a déjà reçu UNE relance (toutes
+    // campagnes) dans les 14 derniers jours, on n'en renvoie pas une seconde.
+    if (due.commenter_provider_id) {
+      const since14 = new Date(Date.now() - 14 * 86400000).toISOString()
+      const { data: already } = await db
+        .from('lead_magnet_sends')
+        .select('id')
+        .eq('commenter_provider_id', due.commenter_provider_id)
+        .neq('id', due.id)
+        .gte('followup_sent_at', since14)
+        .limit(1)
+      if (already && already.length) {
+        await db.from('lead_magnet_sends').update({ followup_sent_at: new Date().toISOString() }).eq('id', due.id)
+        continue // marquée "traitée" sans envoi
+      }
+    }
+
     const chk = await checkLimit(db, ACCOUNT_ID, 'dm')
     if (!chk.allowed) return { sent: 0, reason: chk.reason || 'Plafond messages atteint' }
 
