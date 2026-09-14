@@ -29,8 +29,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           url="$APP_URL/api/cron/outreach"
-          # Fin de session : 18:00 UTC (= 20h Paris en été). Garde-fou : 6h max.
-          end=$(( $(date -u -d 'today 18:00' +%s) ))
+          # Fin de session : 20h00 heure de Paris (été comme hiver). Garde-fou : 1h min.
+          end=$(TZ=Europe/Paris date -d 'today 20:00' +%s)
           [ $(date -u +%s) -ge $end ] && end=$(( $(date -u +%s) + 3600 ))
           i=0
           while [ $(date -u +%s) -lt $end ]; do

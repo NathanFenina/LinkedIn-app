@@ -10,9 +10,14 @@ export async function GET(request: Request) {
   if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  // Jamais le dimanche (heure de Paris).
-  if (new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date()) === 'Sun') {
-    return Response.json({ ok: true, skipped: 'dimanche' })
+  // Jamais le dimanche, et uniquement à 14h Paris : le cron Vercel tourne à
+  // 12:00 ET 13:00 UTC (été / hiver), seul le tir qui tombe à 14h Paris passe.
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(new Date())
+  const weekday = parts.find((p) => p.type === 'weekday')?.value
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value)
+  if (weekday === 'Sun') return Response.json({ ok: true, skipped: 'dimanche' })
+  if (hour !== 14 && !new URL(request.url).searchParams.has('force')) {
+    return Response.json({ ok: true, skipped: `il est ${hour}h à Paris, départ prévu à 14h` })
   }
   const token = process.env.GITHUB_TOKEN
   const repo = process.env.GITHUB_REPO || 'NathanFenina/LinkedIn-app'
