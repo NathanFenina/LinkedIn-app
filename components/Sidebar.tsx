@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Phone } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -25,7 +25,6 @@ const NAV: Item[] = [
   { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'PROSPECTER' },
   { href: '/audits', label: 'Audits ciblés', icon: FileSearch, group: 'PROSPECTER' },
   { href: '/comments', label: 'Commentaires auto', icon: MessageCircle, group: 'PROSPECTER' },
-  { href: '/facebook-leads', label: 'Artisans BTP', icon: Phone, group: 'PROSPECTER' },
   { href: '/', label: 'CRM (leads)', icon: Users, group: 'GÉRER' },
   { href: '/messagerie', label: 'Messagerie', icon: MessageSquare, group: 'GÉRER' },
   { href: '/invitations', label: 'Invitations', icon: UserPlus2, group: 'GÉRER' },

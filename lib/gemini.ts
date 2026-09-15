@@ -552,59 +552,6 @@ Retourne UNIQUEMENT le texte de la note, sans guillemets.`
 // bâtiment qui PROPOSENT leur métier (cibles vendables en SEO + site), et écarte
 // les demandes ("je cherche un plombier"), apporteurs d'affaires, recruteurs,
 // autres commerçants. Batch pour limiter les appels IA.
-export interface ArtisanClassification {
-  index: number
-  is_artisan: boolean
-  metier: string
-  zone: string
-}
-
-export async function classifyArtisanPosts(
-  posts: Array<{ authorName: string; text: string }>
-): Promise<ArtisanClassification[]> {
-  if (!posts.length) return []
-  const list = posts
-    .map((p, i) => `#${i} — AUTEUR: ${p.authorName}\nTEXTE: "${(p.text || '').slice(0, 500).replace(/\n/g, ' ')}"`)
-    .join('\n\n')
-
-  const prompt = `Tu tries des posts de groupes Facebook BTP pour une agence qui vend des SITES WEB + du RÉFÉRENCEMENT (SEO) aux artisans.
-
-On cherche UNIQUEMENT les ARTISANS / PETITES ENTREPRISES DU BÂTIMENT qui font la PROMOTION de LEUR PROPRE activité (ils proposent leur métier, cherchent des clients/chantiers). Ce sont eux qu'on appellera pour leur vendre un site + du SEO.
-
-À GARDER (is_artisan = true) :
-- plombier, électricien, peintre, maçon, couvreur, chauffagiste, menuisier, carreleur, plaquiste, plâtrier, charpentier, terrassier, façadier, serrurier, staffeur, ferronnier, paysagiste, entreprise de rénovation / tous corps d'état, etc. — QUI PROPOSE ses services.
-
-À REJETER (is_artisan = false) :
-- les gens qui CHERCHENT un artisan / un sous-traitant / un chantier ("je cherche", "recherche", "besoin d'un…").
-- les apporteurs d'affaires, agences d'intérim, recruteurs.
-- les vendeurs de formation, marketing, assurance, compta, financement, matériel.
-- tout ce qui n'est pas un artisan du bâtiment proposant son métier.
-
-POSTS :
-${list}
-
-Renvoie UNIQUEMENT un tableau JSON (sans markdown, sans backticks), un objet par post :
-[{"index":0,"is_artisan":true|false,"metier":"<métier court, ex: 'Électricien' ; '' si inconnu>","zone":"<ville/département si mentionné, sinon ''>"}]`
-
-  try {
-    const result = await model.generateContent(prompt)
-    const text = result.response.text().trim()
-    const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim()
-    const first = cleaned.indexOf('[')
-    const last = cleaned.lastIndexOf(']')
-    const json = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned
-    const parsed = JSON.parse(json) as ArtisanClassification[]
-    return parsed.map((p) => ({
-      index: Number(p.index),
-      is_artisan: !!p.is_artisan,
-      metier: (p.metier || '').toString().slice(0, 60),
-      zone: (p.zone || '').toString().slice(0, 80),
-    }))
-  } catch {
-    return []
-  }
-}
-
 // Icebreaker : UNE phrase d'accroche unique par prospect, déduite de sa tagline
 // / sa boîte (à la lemlist), insérée via {accroche} dans le msg1. Jamais de
 // flatterie vide, jamais d'invention : si rien de concret, renvoie ''.
