@@ -615,15 +615,15 @@ export async function generateIcebreaker(params: {
   offerContext: string
 }): Promise<string> {
   const first = (params.name || '').split(' ')[0] || ''
-  const prompt = `Tu es Nathan Fenina (Decupler, SEO & visibilité dans les réponses IA). Tu écris UNE phrase d'accroche (max 20 mots) pour ouvrir un message LinkedIn à ${first || 'cette personne'}.
+  const prompt = `Tu es Nathan Fenina (Decupler). Tu écris UNE phrase d'accroche (max 20 mots) pour ouvrir un message LinkedIn à ${first || 'cette personne'}.
 TAGLINE DE LA PERSONNE : "${params.headline || ''}"
 SA BOÎTE : ${params.company || '(inconnue)'}
-CE QUE TU PROPOSES (contexte, ne le pitch pas) : ${params.offerContext}
+CE QUE TU PROPOSES (contexte pour choisir l'angle, ne le pitch pas) : ${params.offerContext}
 
 Règles :
 - minuscules, ton parlé, 1 seule phrase, pas d'emoji, pas de point d'exclamation.
-- elle doit s'appuyer sur un ÉLÉMENT CONCRET de la tagline ou de la boîte (secteur, rôle, produit). Rien de générique ("j'adore ce que vous faites" = interdit).
-- pas de flatterie, pas de question, pas de pitch. Juste un pont naturel vers le sujet visibilité / acquisition.
+- elle doit s'appuyer sur un ÉLÉMENT CONCRET de la tagline ou de la boîte (secteur, rôle, produit, métier). Rien de générique ("j'adore ce que vous faites" = interdit).
+- pas de flatterie, pas de question, pas de pitch. Juste un pont naturel entre son activité et le sujet du contexte ci-dessus (ex. pour une formation IA : ce que l'IA change concrètement dans SON métier ; pour du SEO : sa visibilité / acquisition).
 - si la tagline est vide ou ne donne rien d'exploitable, réponds exactement : NONE
 
 Réponds UNIQUEMENT avec la phrase (ou NONE).`
