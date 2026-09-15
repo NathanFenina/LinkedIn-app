@@ -10,6 +10,12 @@ type Db = ReturnType<typeof getServerSupabase>
 const DEFAULT_CONTEXT =
   process.env.SIGNAL_BUSINESS_CONTEXT || 'Agence/freelance SEO et acquisition B2B.'
 
+// Contexte IA d'une campagne : sa cible (ICP) si renseignée, sinon le contexte
+// business par défaut. Utilisé pour le scoring des profils et l'accroche.
+export function campaignContext(campaign: Pick<OutreachCampaign, 'icp'>): string {
+  return (campaign.icp || '').trim() || DEFAULT_CONTEXT
+}
+
 async function accountFor(db: Db, linkedin_account_id: string | null): Promise<string> {
   if (linkedin_account_id) {
     const { data } = await db.from('linkedin_accounts').select('unipile_account_id').eq('id', linkedin_account_id).maybeSingle()
@@ -199,7 +205,7 @@ export async function sourceCampaign(db: Db, campaign: OutreachCampaign): Promis
     const chunk = fresh.slice(i, i + 20)
     const part = await Promise.all(chunk.map(async (p) => {
       try {
-        const s = await scoreProfile({ name: p.name || '', jobTitle: p.headline || null, myBusinessContext: DEFAULT_CONTEXT })
+        const s = await scoreProfile({ name: p.name || '', jobTitle: p.headline || null, myBusinessContext: campaignContext(campaign) })
         return { p, score: s.score, reason: s.reason }
       } catch {
         return { p, score: 5, reason: '' }
@@ -416,7 +422,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     if (/\{accroche\}/i.test(text)) {
       let ice = (appr.icebreaker as string | null) || ''
       if (!ice) {
-        ice = await generateIcebreaker({ name: appr.name, headline: appr.headline, company, offerContext: DEFAULT_CONTEXT })
+        ice = await generateIcebreaker({ name: appr.name, headline: appr.headline, company, offerContext: campaignContext(campaign) })
         if (ice) await db.from('outreach_targets').update({ icebreaker: ice }).eq('id', appr.id)
       }
       text = ice ? text.replace(/\{accroche\}/gi, ice) : text.replace(/[ \t]*\{accroche\}[ \t]*\n?/gi, '')

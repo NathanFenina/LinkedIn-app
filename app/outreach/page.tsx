@@ -73,6 +73,8 @@ export default function OutreachPage() {
   const [sCap, setSCap] = useState('15')
   const [sHourStart, setSHourStart] = useState('9')
   const [sHourEnd, setSHourEnd] = useState('18')
+  const [sIcp, setSIcp] = useState('')
+  const [icp, setIcp] = useState('')
   const [dirty, setDirty] = useState(false)
 
   const fetchCampaigns = useCallback(async () => {
@@ -91,6 +93,7 @@ export default function OutreachPage() {
       setSCap(String(data.campaign.daily_cap ?? 15))
       setSHourStart(String(data.campaign.active_hour_start ?? 9))
       setSHourEnd(String(data.campaign.active_hour_end ?? 18))
+      setSIcp(data.campaign.icp || '')
       setDirty(false)
     }
   }, [])
@@ -117,11 +120,11 @@ export default function OutreachPage() {
     try {
       const res = await fetch('/api/outreach', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, search_url: searchUrl, msg1, msg2: msg2 || null, followup_days: Number(followupDays), daily_cap: Number(dailyCap), invite_first: inviteFirst, invite_note: inviteFirst ? (inviteNote || null) : null }),
+        body: JSON.stringify({ name, search_url: searchUrl, msg1, msg2: msg2 || null, followup_days: Number(followupDays), daily_cap: Number(dailyCap), invite_first: inviteFirst, invite_note: inviteFirst ? (inviteNote || null) : null, icp: icp || null }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erreur')
-      setName(''); setSearchUrl(''); setMsg1(''); setMsg2(''); setFollowupDays('3'); setDailyCap('15')
+      setName(''); setSearchUrl(''); setMsg1(''); setMsg2(''); setFollowupDays('3'); setDailyCap('15'); setIcp('')
       setShowForm(false); await fetchCampaigns(); setSelected(data.id)
     } catch (err) { setMsg('Erreur : ' + errMsg(err)) } finally { setBusy(null) }
   }
@@ -132,7 +135,7 @@ export default function OutreachPage() {
     try {
       const res = await fetch(`/api/outreach/${selected}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: sName, msg1: sMsg1, msg2: sMsg2 || null, followup_days: Number(sFollow), daily_cap: Number(sCap), active_hour_start: Number(sHourStart), active_hour_end: Number(sHourEnd) }),
+        body: JSON.stringify({ name: sName, msg1: sMsg1, msg2: sMsg2 || null, followup_days: Number(sFollow), daily_cap: Number(sCap), active_hour_start: Number(sHourStart), active_hour_end: Number(sHourEnd), icp: sIcp || null }),
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Erreur')
       setDirty(false); setMsg('✓ Réglages enregistrés'); await fetchCampaigns()
@@ -239,6 +242,22 @@ export default function OutreachPage() {
         setMsg(`Détection : ${d.replies} réponse(s) trouvée(s) sur ${d.checked} conversation(s) vérifiée(s).`)
         if (selected) { await loadTargets(selected); await fetchCampaigns() }
       }
+    } finally { setBusy(null) }
+  }
+
+  // Re-score les "à valider" avec la cible (ICP) de la campagne ; ceux < 4 sont
+  // écartés d'office. Boucle tant qu'il en reste (200 par appel).
+  async function rescore(id: string) {
+    setBusy('rescore'); setMsg('')
+    try {
+      let total = 0, skipped = 0, more = true, guard = 0
+      while (more && guard++ < 10) {
+        const d = await fetch(`/api/outreach/${id}/rescore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 200, min_score_skip: 4 }) }).then((r) => r.json())
+        if (d.error) { setMsg('Erreur re-score : ' + d.error); return }
+        total += d.scored; skipped += d.skipped; more = !!d.has_more
+        setMsg(`Re-score : ${total} profils notés, ${skipped} écartés (< 4/10)${more ? '…' : '.'}`)
+      }
+      await loadTargets(id); await fetchCampaigns()
     } finally { setBusy(null) }
   }
 
@@ -389,6 +408,11 @@ export default function OutreachPage() {
                 className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600">Cible (ICP) — pour le scoring IA et l&apos;accroche <span className="text-gray-400">(optionnel)</span></label>
+            <textarea value={icp} onChange={(e) => setIcp(e.target.value)} rows={2} placeholder="ex. Dirigeants ou RH de PME 11-200 salariés (agences, cabinets comptables, ESN) pour une formation IA financée par l'OPCO"
+              className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
           <div className="rounded-lg border border-cyan-200 bg-cyan-50/50 p-2.5">
             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
               <input type="checkbox" checked={inviteFirst} onChange={(e) => setInviteFirst(e.target.checked)} />
@@ -481,6 +505,11 @@ export default function OutreachPage() {
                   title="Re-scanne tes conversations LinkedIn pour rattraper les « déjà échangé » anciens"
                   className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
                   {busy === 'rescan' ? <Loader2 className="w-4 h-4 animate-spin" /> : <History className="w-4 h-4" />} Re-scan historique
+                </button>
+                <button onClick={() => rescore(current.id)} disabled={busy === 'rescore'}
+                  title="Re-note les « à valider » avec la cible (ICP) de la campagne et écarte ceux < 4/10"
+                  className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                  {busy === 'rescore' ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎯</span>} Re-scorer
                 </button>
                 <button onClick={detectReplies} disabled={busy === 'detect'}
                   title="Vérifie qui a répondu (marque « A répondu ») pour des taux de réponse fiables"
@@ -587,6 +616,10 @@ export default function OutreachPage() {
                 <div>
                   <label className="text-xs font-medium text-gray-600">Nom / tag</label>
                   <input value={sName} onChange={(e) => { setSName(e.target.value); setDirty(true) }} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Cible (ICP) — sert au scoring IA des profils et à l&apos;accroche <span className="text-gray-400">(vide = contexte SEO par défaut)</span></label>
+                  <textarea value={sIcp} onChange={(e) => { setSIcp(e.target.value); setDirty(true) }} rows={2} placeholder="ex. Dirigeants ou RH de PME 11-200 salariés (agences, cabinets comptables, ESN) pour une formation IA financée par l'OPCO" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Message initial · <span className="text-gray-400">{'{prenom}'} · {'{entreprise}'} · {'{accroche}'} (1re ligne IA) · versions séparées par une ligne <code>===</code> = rotation aléatoire</span></label>

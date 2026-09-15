@@ -158,6 +158,7 @@ export interface OutreachCampaign {
   active_hour_end: number | null
   source_cursor: string | null
   active: boolean
+  icp?: string | null // cible de la campagne (pour le scoring IA + l'accroche) ; sinon contexte par défaut
   invite_first?: boolean
   invite_note?: string | null
   created_at: string

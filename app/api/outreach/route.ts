@@ -61,6 +61,7 @@ export async function POST(request: Request) {
         active: body.active !== false,
         invite_first: body.invite_first === true,
         invite_note: String(body.invite_note || '').trim() || null,
+        icp: String(body.icp || '').trim() || null,
         linkedin_account_id: accountRowId,
       })
       .select()
