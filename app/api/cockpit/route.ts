@@ -118,7 +118,43 @@ export async function GET(request: Request) {
       })),
     ].sort((a, b) => Number(a.handled) - Number(b.handled) || (b.when || '').localeCompare(a.when || ''))
 
+    // ---- Aujourd'hui : ce qui est parti / arrivé depuis minuit (Paris) ----
+    const parisDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date()) // YYYY-MM-DD
+    const todayStart = new Date(`${parisDate}T00:00:00+02:00`).toISOString()
+    const { data: sentToday } = await db.from('outreach_targets').select('campaign_id').gte('last_sent_at', todayStart)
+    const perCampaign: Record<string, number> = {}
+    ;(sentToday || []).forEach((r) => { const n = outMap.get(r.campaign_id) || '?'; perCampaign[n] = (perCampaign[n] || 0) + 1 })
+    const [lmToday, invitesToday, acceptedToday, repliesToday] = await Promise.all([
+      cnt(db.from('lead_magnet_sends').select('id', { count: 'exact', head: true }).or(`sent_at.gte.${todayStart},followup_sent_at.gte.${todayStart}`)),
+      cnt(db.from('outreach_targets').select('id', { count: 'exact', head: true }).gte('invited_at', todayStart)),
+      cnt(db.from('outreach_targets').select('id', { count: 'exact', head: true }).gte('connected_at', todayStart)),
+      repliesIn(todayStart, new Date(now + day).toISOString()),
+    ])
+
+    // ---- À relancer : ont répondu, traités, pas de RDV, silence depuis 3 j+ ----
+    const staleBefore = new Date(now - 3 * day).toISOString()
+    const { data: stale } = await db
+      .from('outreach_targets')
+      .select('id,name,company,campaign_id,replied_handled_at,last_inbound')
+      .eq('status', 'replied').eq('rdv', false).not('replied_handled_at', 'is', null).lt('replied_handled_at', staleBefore)
+      .order('replied_handled_at', { ascending: false }).limit(20)
+    const { data: staleLm } = await db
+      .from('lead_magnet_sends')
+      .select('id,commenter_name,campaign_id,replied_handled_at,last_inbound')
+      .eq('replied', true).eq('rdv', false).not('replied_handled_at', 'is', null).lt('replied_handled_at', staleBefore)
+      .order('replied_handled_at', { ascending: false }).limit(20)
+    const followups = [
+      ...(stale || []).map((r) => ({ id: r.id as string, source: 'outreach' as const, name: r.name as string | null, company: (r.company as string | null) || null, campaign: outMap.get(r.campaign_id) || null, since: r.replied_handled_at as string, last_inbound: (r.last_inbound as string | null) || null })),
+      ...(staleLm || []).map((r) => ({ id: r.id as string, source: 'lead-magnet' as const, name: r.commenter_name as string | null, company: null as string | null, campaign: lmMap.get(r.campaign_id) || null, since: r.replied_handled_at as string, last_inbound: (r.last_inbound as string | null) || null })),
+    ].sort((a, b) => a.since.localeCompare(b.since))
+
+    // ---- Notes du jour (remontées par l'assistant) ----
+    const { data: notes } = await db.from('cockpit_notes').select('*').is('read_at', null).order('created_at', { ascending: false }).limit(20)
+
     return Response.json({
+      today: { sent: perCampaign, lead_magnets: lmToday, invites: invitesToday, accepted: acceptedToday, replies: repliesToday },
+      followups,
+      notes: notes || [],
       campaigns: [...outreach, ...leadmagnets],
       weekly: {
         offset: weekOffset,
