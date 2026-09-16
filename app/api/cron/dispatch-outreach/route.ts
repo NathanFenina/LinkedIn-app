@@ -1,6 +1,6 @@
 // Cron Vercel : déclenche la session d'envoi outbound sur GitHub Actions.
-// Vercel (plan Hobby) tire "dans l'heure" (12:xx et 13:xx UTC), donc on accepte
-// 14h ET 15h Paris, et on n'ouvre JAMAIS deux sessions : si une session est
+// Vercel (plan Hobby) tire "dans l'heure" (07:xx et 08:xx UTC), donc on accepte
+// 9h ET 10h Paris, et on n'ouvre JAMAIS deux sessions : si une session est
 // déjà en cours / en attente aujourd'hui, on ne redéclenche pas.
 // Vercel envoie "Authorization: Bearer CRON_SECRET".
 export const maxDuration = 30
@@ -18,8 +18,8 @@ export async function GET(request: Request) {
   const weekday = parts.find((p) => p.type === 'weekday')?.value
   const hour = Number(parts.find((p) => p.type === 'hour')?.value)
   if (weekday === 'Sun') return Response.json({ ok: true, skipped: 'dimanche' })
-  if (!force && (hour < 14 || hour > 15)) {
-    return Response.json({ ok: true, skipped: `il est ${hour}h à Paris, départ prévu à 14h` })
+  if (!force && (hour < 9 || hour > 10)) {
+    return Response.json({ ok: true, skipped: `il est ${hour}h à Paris, départ prévu à 9h` })
   }
   const token = process.env.GITHUB_TOKEN
   const repo = process.env.GITHUB_REPO || 'NathanFenina/LinkedIn-app'

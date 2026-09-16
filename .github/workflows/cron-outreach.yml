@@ -1,14 +1,14 @@
 name: Outbound Sequencer Session
-# Session d'envoi outbound : UNE session par jour, déclenchée à 14h00 (Paris)
+# Session d'envoi outbound : UNE session par jour, déclenchée à 9h00 (Paris)
 # pile par le cron Vercel (/api/cron/dispatch-outreach) — les crons GitHub ont
-# 2-4 h de retard, celui de 12h UTC ci-dessous n'est qu'un filet de sécurité.
-# La session reste ouverte jusqu'à 20h Paris : elle envoie 1 message toutes les
+# 2-4 h de retard, celui de 7h UTC ci-dessous n'est qu'un filet de sécurité.
+# La session reste ouverte jusqu'à 18h Paris : elle envoie 1 message toutes les
 # 4-6 min quand une campagne est dans sa fenêtre, et re-vérifie toutes les 5 min
-# sinon → CMO démarre à 14h, SEO à 15h, 2e degré + Reprise à 16h, sans retard.
+# sinon → CMO 9h, SEO 10h, Formation IA 11h, 2e degré 14h, sans retard.
 # Repo public → minutes GitHub Actions illimitées.
 on:
   schedule:
-    - cron: '0 12 * * 1-6'   # filet (retard possible) ; le vrai départ = cron Vercel 12:00 UTC
+    - cron: '0 7 * * 1-6'    # filet (retard possible) ; le vrai départ = cron Vercel 07:00 UTC
   workflow_dispatch:
     inputs:
       campaign_id:
@@ -23,16 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 420
     steps:
-      - name: Run outbound session (14h → 20h Paris)
+      - name: Run outbound session (9h → 18h Paris)
         env:
           APP_URL: https://linked-in-app-black.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           url="$APP_URL/api/cron/outreach"
-          # Fin de session : 20h00 heure de Paris (été comme hiver). Si on démarre
-          # après 20h (cron GitHub en retard, session mise en file), on ne fait rien.
-          end=$(TZ=Europe/Paris date -d 'today 20:00' +%s)
-          if [ $(date -u +%s) -ge $end ]; then echo "Après 20h Paris : pas d'envoi."; exit 0; fi
+          # Fin de session : 18h00 heure de Paris (été comme hiver). Si on démarre
+          # après 18h (cron GitHub en retard, session mise en file), on ne fait rien.
+          end=$(TZ=Europe/Paris date -d 'today 18:00' +%s)
+          if [ $(date -u +%s) -ge $end ]; then echo "Après 18h Paris : pas d'envoi."; exit 0; fi
           i=0
           while [ $(date -u +%s) -lt $end ]; do
             i=$((i+1))
@@ -45,4 +45,4 @@ jobs:
               sleep 300                              # rien à envoyer maintenant → on re-vérifie dans 5 min
             fi
           done
-          echo "Session terminée (20h Paris)."
+          echo "Session terminée (18h Paris)."
