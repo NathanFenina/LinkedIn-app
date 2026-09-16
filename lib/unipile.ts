@@ -53,10 +53,16 @@ export async function getConnections(accountId: string, limit = 200, cursor?: st
   })
   if (cursor) params.set('cursor', cursor)
   const data = await unipileFetch(`/users/relations?${params.toString()}`)
-  return {
-    items: (data.items || []) as RawConnection[],
-    cursor: (data.cursor as string | undefined) || undefined,
-  }
+  // Unipile renvoie l'identifiant LinkedIn sous `member_id` (objet UserRelation),
+  // pas `provider_id` : on normalise pour que la détection d'acceptation
+  // d'invitation et la synchro des connexions retrouvent la personne.
+  const items = ((data.items || []) as Array<RawConnection & { member_id?: string; public_profile_url?: string }>).map((c) => ({
+    ...c,
+    provider_id: c.provider_id || c.member_id || undefined,
+    id: c.id || c.member_id || '',
+    profile_url: c.profile_url || c.public_profile_url || undefined,
+  })) as RawConnection[]
+  return { items, cursor: (data.cursor as string | undefined) || undefined }
 }
 
 export async function startNewChat(accountId: string, linkedinUserId: string, text: string) {
