@@ -1,14 +1,14 @@
 name: Outbound Sequencer Session
-# Session d'envoi outbound : UNE session par jour, déclenchée à 9h00 (Paris)
+# Session d'envoi outbound : UNE session par jour, déclenchée à 12h00 (Paris)
 # pile par le cron Vercel (/api/cron/dispatch-outreach) — les crons GitHub ont
-# 2-4 h de retard, celui de 7h UTC ci-dessous n'est qu'un filet de sécurité.
+# 2-4 h de retard, celui de 10h UTC ci-dessous n'est qu'un filet de sécurité.
 # La session reste ouverte jusqu'à 18h Paris : elle envoie 1 message toutes les
 # 4-6 min quand une campagne est dans sa fenêtre, et re-vérifie toutes les 5 min
-# sinon → CMO 9h, SEO 10h, Formation IA 11h, 2e degré 14h, sans retard.
+# sinon → CMO 12h, SEO 13h, Formation IA 14h, 2e degré 15h, sans retard.
 # Repo public → minutes GitHub Actions illimitées.
 on:
   schedule:
-    - cron: '0 7 * * 1-6'    # filet (retard possible) ; le vrai départ = cron Vercel 07:00 UTC
+    - cron: '0 10 * * 1-6'   # filet (retard possible) ; le vrai départ = cron Vercel 10:00 UTC
   workflow_dispatch:
     inputs:
       campaign_id:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 420
     steps:
-      - name: Run outbound session (9h → 18h Paris)
+      - name: Run outbound session (12h → 18h Paris)
         env:
           APP_URL: https://linked-in-app-black.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
