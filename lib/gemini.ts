@@ -571,6 +571,7 @@ Règles :
 - minuscules, ton parlé, 1 seule phrase, pas d'emoji, pas de point d'exclamation.
 - elle doit s'appuyer sur un ÉLÉMENT CONCRET de la tagline ou de la boîte (secteur, rôle, produit, métier). Rien de générique ("j'adore ce que vous faites" = interdit).
 - pas de flatterie, pas de question, pas de pitch. Juste un pont naturel entre son activité et le sujet du contexte ci-dessus (ex. pour une formation IA : ce que l'IA change concrètement dans SON métier ; pour du SEO : sa visibilité / acquisition).
+- INTERDIT : "passionnant", "intéressant", "sujet", "enjeu", "j'imagine", "je me disais". Écris une observation factuelle et précise sur son métier (une tâche, un process, un type de client), comme si tu connaissais le secteur. Ex. bon : "dans la sellerie, les devis et la relance client à la main, c'est vite des heures par semaine". Ex. mauvais : "l'ia dans la sellerie est un sujet passionnant".
 - si la tagline est vide ou ne donne rien d'exploitable, réponds exactement : NONE
 
 Réponds UNIQUEMENT avec la phrase (ou NONE).`
