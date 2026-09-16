@@ -29,9 +29,10 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           url="$APP_URL/api/cron/outreach"
-          # Fin de session : 20h00 heure de Paris (été comme hiver). Garde-fou : 1h min.
+          # Fin de session : 20h00 heure de Paris (été comme hiver). Si on démarre
+          # après 20h (cron GitHub en retard, session mise en file), on ne fait rien.
           end=$(TZ=Europe/Paris date -d 'today 20:00' +%s)
-          [ $(date -u +%s) -ge $end ] && end=$(( $(date -u +%s) + 3600 ))
+          if [ $(date -u +%s) -ge $end ]; then echo "Après 20h Paris : pas d'envoi."; exit 0; fi
           i=0
           while [ $(date -u +%s) -lt $end ]; do
             i=$((i+1))
