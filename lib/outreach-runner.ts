@@ -45,9 +45,12 @@ export function companyFromHeadline(headline: string | null): string | null {
   return c
 }
 
-export function isSundayParis(): boolean {
-  return new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date()) === 'Sun'
+// Week-end (samedi + dimanche, heure de Paris) : aucun envoi automatique.
+export function isWeekendParis(): boolean {
+  const d = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date())
+  return d === 'Sat' || d === 'Sun'
 }
+export const isSundayParis = isWeekendParis
 
 // Variantes de msg1 : dans le champ, sépare les versions par une ligne "===".
 // On en tire une AU HASARD par prospect (rotation anti-spam + A/B), et on
@@ -265,7 +268,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   }
 
   // Jamais d'envoi le dimanche (heure de Paris), même en déclenchement manuel.
-  if (isSundayParis()) return { sent: 0, skipped_reason: 'Dimanche : pas d’envoi' }
+  if (isWeekendParis()) return { sent: 0, skipped_reason: 'Week-end : pas d’envoi' }
 
   const sentToday = await sentTodayCount(db, campaign.id)
   if (sentToday >= (campaign.daily_cap || 15)) {

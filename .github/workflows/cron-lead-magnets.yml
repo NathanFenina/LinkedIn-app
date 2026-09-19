@@ -10,7 +10,7 @@ on:
   schedule:
     # 10:00 UTC ≈ 12h heure française. Déclenchement approximatif (GitHub peut
     # décaler). Concerne les campagnes actives + auto_run.
-    - cron: '0 10 * * 1-6'
+    - cron: '0 10 * * 1-5'
   workflow_dispatch:        # lancé à la demande depuis l'app (bouton "Lancer l'envoi")
     inputs:
       campaign_id:

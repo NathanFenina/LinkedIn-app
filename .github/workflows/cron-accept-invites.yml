@@ -6,7 +6,7 @@ name: Auto-Accept Invitations
 on:
   schedule:
     # 06:00 UTC ≈ 8h heure française (été). GitHub peut décaler de ~1h.
-    - cron: '0 6 * * 1-6'
+    - cron: '0 6 * * 1-5'
   workflow_dispatch:
 jobs:
   session:

@@ -8,7 +8,7 @@ name: Outbound Sequencer Session
 # Repo public → minutes GitHub Actions illimitées.
 on:
   schedule:
-    - cron: '0 10 * * 1-6'   # filet (retard possible) ; le vrai départ = cron Vercel 10:00 UTC
+    - cron: '0 10 * * 1-5'   # filet (retard possible) ; le vrai départ = cron Vercel 10:00 UTC
   workflow_dispatch:
     inputs:
       campaign_id:

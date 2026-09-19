@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(new Date())
   const weekday = parts.find((p) => p.type === 'weekday')?.value
   const hour = Number(parts.find((p) => p.type === 'hour')?.value)
-  if (weekday === 'Sun') return Response.json({ ok: true, skipped: 'dimanche' })
+  if (weekday === 'Sat' || weekday === 'Sun') return Response.json({ ok: true, skipped: 'week-end' })
   if (!force && (hour < 12 || hour > 13)) {
     return Response.json({ ok: true, skipped: `il est ${hour}h à Paris, départ prévu à 12h` })
   }
