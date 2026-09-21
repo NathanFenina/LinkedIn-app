@@ -380,7 +380,7 @@ export default function CockpitPage() {
                   <span className="text-gray-400">· {data?.engines.autoAccept.accepted_7j ?? 0} sur 7j</span>
                 </div>
               </div>
-              <p className="text-[10px] text-gray-400 mt-1">Rythme quotidien (lun–ven) : invitations acceptées 8h · lead-magnets 12h · outbound 12h→18h (CMO 12h, SEO 13h, Formation IA 14h, 2e degré 15h) · détection des réponses 19h + temps réel.</p>
+              <p className="text-[10px] text-gray-400 mt-1">Rythme quotidien (lun–ven) : invitations acceptées 8h · lead-magnets 12h · outbound 14h00→19h (les 4 campagnes) · détection des réponses 19h + temps réel.</p>
             </section>
 
             {/* D. Historique — ont répondu */}
