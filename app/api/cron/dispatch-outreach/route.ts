@@ -1,6 +1,6 @@
 // Cron Vercel : déclenche la session d'envoi outbound sur GitHub Actions.
 // Vercel (plan Hobby) tire "dans l'heure" (10:xx et 11:xx UTC), donc on accepte
-// 12h ET 13h Paris (la session attend ensuite 14h00 pile avant d'envoyer), et on n'ouvre JAMAIS deux sessions : si une session est
+// 12h ET 13h Paris (la session attend ensuite 15h00 pile avant d'envoyer), et on n'ouvre JAMAIS deux sessions : si une session est
 // déjà en cours / en attente aujourd'hui, on ne redéclenche pas.
 // Vercel envoie "Authorization: Bearer CRON_SECRET".
 export const maxDuration = 30
