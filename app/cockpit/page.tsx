@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Flame, RefreshCw, ExternalLink, CheckCircle2, UserPlus2, Radio, ChevronLeft, ChevronRight, Bell, Clock } from 'lucide-react'
+import { Flame, RefreshCw, ExternalLink, CheckCircle2, UserPlus2, Radio, ChevronLeft, ChevronRight, Bell, Clock, Video } from 'lucide-react'
 import { formatDistanceToNow } from '@/lib/utils'
 
 interface Campaign { type: string; name: string; active: boolean; envoyes: number; retours: number; succes: number }
 interface HotItem { id: string; source: 'outreach' | 'lead-magnet'; name: string | null; campaign: string | null; company: string | null; provider_id: string | null; profile_url: string | null; when: string | null; rdv: boolean; last_inbound: string | null; handled: boolean; has_chat: boolean }
+interface WebinarItem { id: string; source: 'outreach' | 'lead-magnet'; name: string | null; company: string | null; campaign: string | null; when: string | null; last_inbound: string | null }
 interface Followup { id: string; source: 'outreach' | 'lead-magnet'; name: string | null; company: string | null; campaign: string | null; since: string; last_inbound: string | null }
 interface Note { id: string; kind: string; title: string; body: string | null; link: string | null; created_at: string }
 interface Draft { messages: Array<{ text: string; is_sender: boolean; created_at: string }>; draft: string; calendly: string }
@@ -13,6 +14,7 @@ interface Weekly { offset: number; label: string; canNext: boolean; dm: number; 
 interface Data {
   today: { sent: Record<string, number>; lead_magnets: number; invites: number; accepted: number; replies: number }
   followups: Followup[]
+  webinar: WebinarItem[]
   notes: Note[]
   campaigns: Campaign[]
   weekly: Weekly
@@ -63,29 +65,29 @@ export default function CockpitPage() {
   }
 
   // Prépare la réponse IA (fil + brouillon) pour un item "à traiter".
-  const prepare = async (item: { id: string; source: string }) => {
+  const prepare = async (item: { id: string; source: string }, mode: 'reply' | 'webinar' = 'reply') => {
     setBusy(item.id + 'prep')
     try {
-      const d = await fetch(`/api/cockpit/reply?source=${item.source}&id=${item.id}`).then((r) => r.json())
+      const d = await fetch(`/api/cockpit/reply?source=${item.source}&id=${item.id}&mode=${mode}`).then((r) => r.json())
       if (d.error) { setErr(d.error); return }
       setDrafts((p) => ({ ...p, [item.id]: d }))
       setEditing((p) => ({ ...p, [item.id]: d.draft || '' }))
     } finally { setBusy(null) }
   }
   // Envoie (ou passe) et clôt l'item.
-  const finish = async (item: { id: string; source: string }, op: 'send' | 'skip') => {
+  const finish = async (item: { id: string; source: string }, op: 'send' | 'skip', mode: 'reply' | 'webinar' = 'reply') => {
     setBusy(item.id + op)
     try {
       const d = await fetch('/api/cockpit/reply', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: item.source, id: item.id, op, text: editing[item.id] || '' }),
+        body: JSON.stringify({ source: item.source, id: item.id, op, mode, text: editing[item.id] || '' }),
       }).then((r) => r.json())
       if (d.error) { setErr(d.error); return }
-      setData((prev) => prev ? {
+      setData((prev) => prev ? (mode === 'webinar' ? { ...prev, webinar: prev.webinar.filter((w) => w.id !== item.id) } : {
         ...prev,
         hot: { ...prev.hot, todo: Math.max(0, prev.hot.todo - 1), items: prev.hot.items.map((h) => h.id === item.id ? { ...h, handled: true } : h) },
         followups: prev.followups.filter((f) => f.id !== item.id),
-      } : prev)
+      }) : prev)
       setDrafts((p) => { const n = { ...p }; delete n[item.id]; return n })
     } finally { setBusy(null) }
   }
@@ -108,15 +110,16 @@ export default function CockpitPage() {
   const todayCount = todo.length + (data?.followups.length || 0) + (data?.notes.length || 0)
 
   // Bloc réponse (fil + brouillon + envoyer) réutilisé pour "à traiter" et "à relancer".
-  const replyBlock = (h: { id: string; source: 'outreach' | 'lead-magnet'; rdv?: boolean; has_chat?: boolean; name: string | null; provider_id?: string | null; profile_url?: string | null }, mode: 'todo' | 'followup') => {
+  const replyBlock = (h: { id: string; source: 'outreach' | 'lead-magnet'; rdv?: boolean; has_chat?: boolean; name: string | null; provider_id?: string | null; profile_url?: string | null }, mode: 'todo' | 'followup' | 'webinar') => {
     const d = drafts[h.id]
+    const m = mode === 'webinar' ? 'webinar' : 'reply'
     if (!d) return (
       <div className="flex items-center gap-1.5 flex-wrap">
-        <button onClick={() => prepare(h)} disabled={busy === h.id + 'prep' || h.has_chat === false} className="text-[11px] px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1">
-          {busy === h.id + 'prep' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '✍️'} {mode === 'todo' ? 'Préparer la réponse' : 'Préparer la relance'}
+        <button onClick={() => prepare(h, m)} disabled={busy === h.id + 'prep' || h.has_chat === false} className="text-[11px] px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1">
+          {busy === h.id + 'prep' ? <RefreshCw className="w-3 h-3 animate-spin" /> : '✍️'} {mode === 'todo' ? 'Préparer la réponse' : mode === 'webinar' ? 'Préparer l’invitation' : 'Préparer la relance'}
         </button>
-        {!h.rdv && <button onClick={() => act({ id: h.id, source: h.source, name: h.name, provider_id: h.provider_id || null, profile_url: h.profile_url || null }, 'rdv')} className="text-[11px] px-2 py-1 border border-green-200 text-green-700 rounded hover:bg-green-50 inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> RDV pris</button>}
-        <button onClick={() => finish(h, 'skip')} className="text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50">{mode === 'todo' ? 'Déjà traité' : 'Laisser tomber'}</button>
+        {!h.rdv && mode !== 'webinar' && <button onClick={() => act({ id: h.id, source: h.source, name: h.name, provider_id: h.provider_id || null, profile_url: h.profile_url || null }, 'rdv')} className="text-[11px] px-2 py-1 border border-green-200 text-green-700 rounded hover:bg-green-50 inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> RDV pris</button>}
+        <button onClick={() => finish(h, 'skip', m)} className="text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50">{mode === 'todo' ? 'Déjà traité' : mode === 'webinar' ? 'Ne pas inviter' : 'Laisser tomber'}</button>
         {h.has_chat === false && <span className="text-[10px] text-gray-400">(pas de fil connu — réponds sur LinkedIn)</span>}
       </div>
     )
@@ -129,10 +132,10 @@ export default function CockpitPage() {
         </div>
         <textarea value={editing[h.id] ?? ''} onChange={(e) => setEditing((p) => ({ ...p, [h.id]: e.target.value }))} rows={3} className="w-full border border-blue-200 rounded px-2.5 py-2 text-[13px]" />
         <div className="flex items-center gap-1.5 flex-wrap">
-          <button onClick={() => finish(h, 'send')} disabled={busy === h.id + 'send'} className="text-[11px] px-2.5 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">📨 Envoyer</button>
-          {d.calendly && <button onClick={() => setEditing((p) => ({ ...p, [h.id]: `${(p[h.id] || '').trim()}\n${d.calendly}`.trim() }))} className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50">+ lien Calendly</button>}
-          {!h.rdv && <button onClick={() => act({ id: h.id, source: h.source, name: h.name, provider_id: h.provider_id || null, profile_url: h.profile_url || null }, 'rdv')} className="text-[11px] px-2 py-1 border border-green-200 text-green-700 rounded hover:bg-green-50">RDV pris</button>}
-          <button onClick={() => finish(h, 'skip')} className="text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50">Passer</button>
+          <button onClick={() => finish(h, 'send', m)} disabled={busy === h.id + 'send'} className="text-[11px] px-2.5 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">📨 Envoyer</button>
+          {d.calendly && mode !== 'webinar' && <button onClick={() => setEditing((p) => ({ ...p, [h.id]: `${(p[h.id] || '').trim()}\n${d.calendly}`.trim() }))} className="text-[11px] px-2 py-1 border border-gray-200 rounded hover:bg-gray-50">+ lien Calendly</button>}
+          {!h.rdv && mode !== 'webinar' && <button onClick={() => act({ id: h.id, source: h.source, name: h.name, provider_id: h.provider_id || null, profile_url: h.profile_url || null }, 'rdv')} className="text-[11px] px-2 py-1 border border-green-200 text-green-700 rounded hover:bg-green-50">RDV pris</button>}
+          <button onClick={() => finish(h, 'skip', m)} className="text-[11px] px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50">Passer</button>
         </div>
       </div>
     )
@@ -286,6 +289,32 @@ export default function CockpitPage() {
                 ))}
               </div>
               <p className="text-[10px] text-gray-400 mt-1">Ils ont répondu, tu as échangé, mais pas de RDV pris depuis 3 jours et plus : une relance courte ici, ou « RDV pris » / « Laisser tomber ».</p>
+            </section>
+
+            {/* 4. Relance workshop — ont déjà échangé (SEO + lead-magnets), à inviter au live */}
+            <section>
+              <h2 className="text-sm font-medium text-gray-900 mb-2 flex items-center gap-1.5">
+                <Video className="w-4 h-4 text-purple-500" /> Relance workshop
+                <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${data?.webinar.length ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>{data?.webinar.length ?? 0}</span>
+              </h2>
+              <div className="bg-white border border-purple-200 rounded-lg divide-y divide-gray-100">
+                {!data || data.webinar.length === 0 ? (
+                  <div className="text-center py-6 text-gray-400 text-sm">Tout le monde a été invité. 👌</div>
+                ) : data.webinar.map((f) => (
+                  <div key={f.id} className="px-3 py-3 text-sm space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${f.source === 'outreach' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'}`}>{f.source === 'outreach' ? 'Outreach' : 'Lead-magnet'}</span>
+                      <span className="font-medium text-gray-900">{f.name || 'Anonyme'}</span>
+                      {f.company && <span className="text-[11px] text-gray-500">· {f.company}</span>}
+                      {f.campaign && <span className="text-[11px] text-gray-400">· {f.campaign}</span>}
+                      {f.when && <span className="text-[11px] text-gray-400">· a répondu {formatDistanceToNow(f.when)}</span>}
+                    </div>
+                    {f.last_inbound && <div className="text-[12px] text-gray-600 bg-gray-50 border border-gray-100 rounded px-2.5 py-1.5 line-clamp-2">{f.last_inbound}</div>}
+                    {replyBlock({ id: f.id, source: f.source, name: f.name, rdv: true }, 'webinar')}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Chaque invitation est rédigée à partir de VOTRE échange (l’IA relit le fil), avec le lien du workshop. Tu relis, tu envoies. 10 par jour, c’est un bon rythme.</p>
             </section>
           </>
         )}

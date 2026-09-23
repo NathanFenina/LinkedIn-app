@@ -372,15 +372,20 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
 
   // Priorité 2 : 1er message. En DM direct = aux 'approved'. En invitation-first
   // = aux 'connected' (invitation déjà acceptée).
+  // Campagne "invitation seule" : invite_first sans message 1 → on n'envoie
+  // jamais de DM après acceptation, on ne fait que grossir le réseau.
   const msg1Status = campaign.invite_first ? 'connected' : 'approved'
-  const { data: appr } = await db
-    .from('outreach_targets')
-    .select('*')
-    .eq('campaign_id', campaign.id)
-    .eq('status', msg1Status)
-    .order('score', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const wantsMsg1 = !!(campaign.msg1 || '').trim()
+  const { data: appr } = wantsMsg1
+    ? await db
+      .from('outreach_targets')
+      .select('*')
+      .eq('campaign_id', campaign.id)
+      .eq('status', msg1Status)
+      .order('score', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    : { data: null }
 
   // Priorité 3 (invitation-first uniquement) : envoyer une invitation à un
   // 'approved' quand il n'y a personne à messager. La note porte l'accroche.

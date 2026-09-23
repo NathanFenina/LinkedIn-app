@@ -148,12 +148,31 @@ export async function GET(request: Request) {
       ...(staleLm || []).map((r) => ({ id: r.id as string, source: 'lead-magnet' as const, name: r.commenter_name as string | null, company: null as string | null, campaign: lmMap.get(r.campaign_id) || null, since: r.replied_handled_at as string, last_inbound: (r.last_inbound as string | null) || null })),
     ].sort((a, b) => a.since.localeCompare(b.since))
 
+    // ---- Relance workshop : ont répondu (SEO + lead-magnets), fil connu, pas
+    // encore invités au workshop. Les plus récents d'abord.
+    const { data: wbOut } = await db
+      .from('outreach_targets')
+      .select('id,name,company,campaign_id,replied_at,last_inbound,headline')
+      .eq('status', 'replied').not('chat_id', 'is', null).is('webinar_invited_at', null)
+      .order('replied_at', { ascending: false }).limit(80)
+    const { data: wbLm } = await db
+      .from('lead_magnet_sends')
+      .select('id,commenter_name,campaign_id,replied_at,last_inbound')
+      .eq('replied', true).not('chat_id', 'is', null).is('webinar_invited_at', null)
+      .order('replied_at', { ascending: false }).limit(80)
+    const seoIds = new Set((outCampaigns || []).filter((c) => /seo/i.test(c.name)).map((c) => c.id))
+    const webinar = [
+      ...(wbOut || []).filter((r) => seoIds.has(r.campaign_id)).map((r) => ({ id: r.id as string, source: 'outreach' as const, name: r.name as string | null, company: (r.company as string | null) || null, campaign: outMap.get(r.campaign_id) || null, when: r.replied_at as string | null, last_inbound: (r.last_inbound as string | null) || null })),
+      ...(wbLm || []).map((r) => ({ id: r.id as string, source: 'lead-magnet' as const, name: r.commenter_name as string | null, company: null as string | null, campaign: lmMap.get(r.campaign_id) || null, when: r.replied_at as string | null, last_inbound: (r.last_inbound as string | null) || null })),
+    ].sort((a, b) => (b.when || '').localeCompare(a.when || ''))
+
     // ---- Notes du jour (remontées par l'assistant) ----
     const { data: notes } = await db.from('cockpit_notes').select('*').is('read_at', null).order('created_at', { ascending: false }).limit(20)
 
     return Response.json({
       today: { sent: perCampaign, lead_magnets: lmToday, invites: invitesToday, accepted: acceptedToday, replies: repliesToday },
       followups,
+      webinar,
       notes: notes || [],
       campaigns: [...outreach, ...leadmagnets],
       weekly: {
