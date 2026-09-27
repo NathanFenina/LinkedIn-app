@@ -1,7 +1,7 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { detectNewPosts } from '@/lib/crosspost'
 
-// Cron Vercel (toutes les 15 min) : détecte les nouveaux posts LinkedIn du
+// Cron GitHub Actions (toutes les 15 min) : détecte les nouveaux posts LinkedIn du
 // compte source et prépare les variantes. Ne publie JAMAIS rien.
 // Auth : "Authorization: Bearer ${CRON_SECRET}".
 export const maxDuration = 120
