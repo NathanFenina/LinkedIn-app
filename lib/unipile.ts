@@ -591,3 +591,72 @@ export async function listWebhooks(): Promise<Array<{ id?: string; request_url?:
   const data = await unipileFetch(`/webhooks`)
   return (data.items || data || []) as Array<{ id?: string; request_url?: string; source?: string }>
 }
+
+// ---------------------------------------------------------------------------
+// Cross-post : profil du compte, comptes connectés, posts complets, création.
+// ---------------------------------------------------------------------------
+export { unipileFetch }
+
+export async function getOwnProfile(accountId: string): Promise<{ provider_id?: string; public_identifier?: string; first_name?: string; last_name?: string; provider?: string }> {
+  return unipileFetch(`/users/me?account_id=${encodeURIComponent(accountId)}`)
+}
+
+export async function listUnipileAccounts(): Promise<Array<{ id: string; type: string; name?: string }>> {
+  const data = await unipileFetch('/accounts?limit=100')
+  return ((data.items || []) as Array<Record<string, unknown>>).map((a) => ({
+    id: String(a.id || ''),
+    type: String(a.type || a.provider || ''),
+    name: (a.name as string) || undefined,
+  }))
+}
+
+export interface FullPost {
+  id: string
+  social_id: string
+  share_url: string
+  text: string
+  images: string[]
+  posted_at: string | null
+  is_repost: boolean
+}
+
+// Posts récents du membre avec leurs images (URLs signées Unipile, temporaires).
+export async function getUserPostsFull(accountId: string, identifier: string, limit = 10): Promise<FullPost[]> {
+  const params = new URLSearchParams({ account_id: accountId, limit: String(limit) })
+  const data = await unipileFetch(`/users/${encodeURIComponent(identifier)}/posts?${params.toString()}`)
+  const raw = (data.items || []) as Array<Record<string, unknown>>
+  return raw.map((p) => {
+    const atts = (p.attachments || []) as Array<Record<string, unknown>>
+    const images = atts.filter((a) => a.type === 'img' && a.url && !a.unavailable).map((a) => String(a.url))
+    const shareUrl = (p.share_url as string) || ''
+    return {
+      id: String(p.id || p.social_id || ''),
+      social_id: String(p.social_id || p.id || ''),
+      share_url: shareUrl.split('?')[0],
+      text: (p.text as string) || '',
+      images,
+      posted_at: (p.parsed_datetime as string) || (p.date as string) || null,
+      is_repost: !!p.is_repost || !!p.repost_id || !!(p.repost_content as unknown),
+    }
+  })
+}
+
+// Création d'un post (LinkedIn ou Instagram) : multipart, images téléchargées
+// depuis leurs URLs puis jointes en "attachments".
+export async function createPost(accountId: string, text: string, imageUrls: string[] = []): Promise<{ post_id: string | null }> {
+  const form = new FormData()
+  form.append('account_id', accountId)
+  form.append('text', text)
+  let i = 0
+  for (const url of imageUrls) {
+    const r = await fetch(url)
+    if (!r.ok) throw new Error(`Image inaccessible (${r.status})`)
+    const blob = await r.blob()
+    const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')
+    form.append('attachments', blob, `image-${++i}.${ext}`)
+  }
+  const res = await fetch(`${BASE_URL}/posts`, { method: 'POST', headers: { 'X-API-KEY': API_KEY }, body: form })
+  if (!res.ok) throw new Error(`Unipile API error ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return { post_id: (data.post_id as string) || null }
+}
