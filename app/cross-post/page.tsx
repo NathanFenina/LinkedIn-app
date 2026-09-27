@@ -118,7 +118,7 @@ export default function CrossPostPage() {
           <div className="flex items-center gap-2">
             <button onClick={() => setShowSettings((v) => !v)} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" /> Réglages</button>
             <button onClick={() => load()} disabled={loading} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir</button>
-            <button onClick={detect} disabled={busy === 'detect'} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'detect' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔎'} Détecter maintenant</button>
+            <button onClick={detect} disabled={busy === 'detect'} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'detect' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔎'} Détecter mes derniers posts</button>
           </div>
         </div>
       </header>
@@ -151,7 +151,7 @@ export default function CrossPostPage() {
                 {(data?.accounts || []).filter((a) => /linkedin/i.test(a.type)).map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
               </select>
             </div>
-            <p className="text-[11px] text-gray-400">Détection automatique toutes les 15 min (cron). Les posts publiés avant l’activation sont mémorisés mais pas proposés. Les reposts sont ignorés.</p>
+            <p className="text-[11px] text-gray-400">Pas de cron : clique « Détecter mes derniers posts » après avoir publié sur LinkedIn. Les 10 derniers posts sont lus, ceux déjà vus ne reviennent pas, les reposts sont ignorés.</p>
           </div>
         )}
 
@@ -165,7 +165,7 @@ export default function CrossPostPage() {
         <div className="space-y-4">
           {!data || data.posts.length === 0 ? (
             <div className="bg-white border border-gray-200 rounded-lg text-center py-10 text-gray-400 text-sm">
-              {view === 'pending' ? 'Aucun post à valider. Publie sur LinkedIn : il apparaît ici dans les 15 min (ou clique « Détecter maintenant »).' : 'Rien de traité pour l’instant.'}
+              {view === 'pending' ? 'Aucun post à valider. Publie sur LinkedIn : il apparaît ici dans les 15 min (ou clique « Détecter mes derniers posts »).' : 'Rien de traité pour l’instant.'}
             </div>
           ) : data.posts.map((p) => {
             const e = edit[p.id] || { instagram: '', facebook: '' }

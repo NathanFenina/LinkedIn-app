@@ -2,10 +2,10 @@ import { getServerSupabase } from '@/lib/supabase'
 import { unipileFetch, getOwnProfile, listUnipileAccounts, getUserPostsFull, createPost } from '@/lib/unipile'
 
 // Cross-post : LinkedIn → Instagram (Unipile) + Facebook (presse-papier en v1).
-// Détection par cron (Unipile n'a pas de webhook "nouveau post"), génération
-// des variantes via l'API Claude (touche légère : le texte reste quasi
-// identique), validation manuelle dans /cross-post, jamais de publication
-// automatique.
+// Détection À LA DEMANDE (bouton « Détecter mes derniers posts » dans
+// /cross-post — pas de cron), génération des variantes via l'API Claude
+// (touche légère : le texte reste quasi identique), validation manuelle,
+// jamais de publication automatique.
 
 type Db = ReturnType<typeof getServerSupabase>
 
@@ -91,20 +91,14 @@ export async function detectNewPosts(db: Db, opts: { limit?: number; generate?: 
   const { data: known } = await db.from('cross_posts').select('linkedin_post_id').eq('source_account_id', accountId).in('linkedin_post_id', ids)
   const seen = new Set((known || []).map((k) => k.linkedin_post_id as string))
 
-  // Première détection : on mémorise l'historique sans le proposer (sinon 10
-  // vieux posts remonteraient d'un coup). Réglage "amorcé" par compte.
-  const primedKey = `crosspost_primed:${accountId}`
-  const primed = await getSetting(db, primedKey)
-
   let added = 0
   for (const p of posts) {
     if (!p.id || seen.has(p.id)) continue
     if (p.is_repost) continue // on ne republie pas les reposts
     const images = p.images
-    const skipAsHistory = !primed
     let variants: Variants = { instagram: p.text.slice(0, 2200), facebook: p.text }
     let note = ''
-    if (!skipAsHistory && opts.generate !== false && p.text.trim()) {
+    if (opts.generate !== false && p.text.trim()) {
       const g = await generateVariants(p.text, images.length > 0)
       variants = g.variants; note = g.note
     }
@@ -117,14 +111,13 @@ export async function detectNewPosts(db: Db, opts: { limit?: number; generate?: 
       source_images: images,
       posted_at: p.posted_at,
       variants,
-      generated_at: skipAsHistory ? null : new Date().toISOString(),
-      generation_note: skipAsHistory ? 'historique (avant activation)' : note || null,
-      ig_status: skipAsHistory ? 'skipped' : 'pending',
-      fb_status: skipAsHistory ? 'skipped' : 'pending',
+      generated_at: new Date().toISOString(),
+      generation_note: note || null,
+      ig_status: 'pending',
+      fb_status: 'pending',
     })
     if (!error) added++
   }
-  if (!primed) await setSetting(db, primedKey, new Date().toISOString())
   return { scanned: posts.length, added, account: accountId }
 }
 
