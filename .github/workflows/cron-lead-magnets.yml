@@ -1,6 +1,6 @@
 name: Lead Magnets Session
 # Session d'envoi des lead-magnets : envoie un DM aux commentateurs d'un post,
-# UN PAR UN, espacés d'un délai aléatoire de 2,5-5 min — comme une vraie personne.
+# UN PAR UN, espacés d'un délai aléatoire de 2-4 min, entre 15h et 18h Paris — comme une vraie personne.
 # Tourne sur le runner GitHub Actions (jusqu'à 6h/job), donc pas de limite
 # Vercel 300s. L'app ne fait qu'"envoie le suivant" à chaque appel ; c'est cette
 # boucle qui gère l'espacement. Les garde-fous (limits.ts) bloquent au plafond
@@ -8,15 +8,19 @@ name: Lead Magnets Session
 # au tour suivant.
 on:
   schedule:
-    # 10:00 UTC ≈ 12h heure française. Déclenchement approximatif (GitHub peut
-    # décaler). Concerne les campagnes actives + auto_run.
-    - cron: '0 10 * * 1-5'
+    # Filet de sécurité (retard GitHub possible). Le vrai départ est le cron
+    # Vercel /api/cron/dispatch-outreach qui ouvre cette session vers 12h-13h ;
+    # la session attend ensuite 15h00 Paris pile avant le premier envoi.
+    - cron: '0 11 * * 1-5'
   workflow_dispatch:        # lancé à la demande depuis l'app (bouton "Lancer l'envoi")
     inputs:
       campaign_id:
         description: 'ID de la campagne à envoyer (vide = toutes les campagnes auto_run)'
         required: false
         default: ''
+concurrency:
+  group: lead-magnets-session
+  cancel-in-progress: false
 jobs:
   session:
     runs-on: ubuntu-latest
@@ -34,7 +38,15 @@ jobs:
             url="$url?campaign_id=$CAMPAIGN_ID"
           fi
 
+          # Fenêtre d'envoi : 15h00 → 18h00 Paris (été comme hiver), lun-ven.
+          start=$(TZ=Europe/Paris date -d 'today 15:00' +%s)
+          end=$(TZ=Europe/Paris date -d 'today 18:00' +%s)
+          if [ $(date -u +%s) -ge $end ]; then echo "Après 18h Paris : pas d'envoi."; exit 0; fi
+          now=$(date -u +%s)
+          if [ $now -lt $start ]; then echo "Attente jusqu'à 15h00 Paris ($(( (start-now)/60 )) min)…"; sleep $(( start - now )); fi
+
           for i in $(seq 1 400); do
+            if [ $(date -u +%s) -ge $end ]; then echo "18h Paris : fin de session."; break; fi
             resp=$(curl -fsSL -X POST \
               -H "Authorization: Bearer $CRON_SECRET" \
               "$url")
@@ -49,6 +61,6 @@ jobs:
               break
             fi
 
-            # Espacement aléatoire 150-300s (2,5-5 min) avant le prochain envoi.
-            sleep $(( ( RANDOM % 151 ) + 150 ))
+            # Espacement aléatoire 120-240s (2-4 min) avant le prochain envoi.
+            sleep $(( ( RANDOM % 121 ) + 120 ))
           done

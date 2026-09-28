@@ -27,20 +27,19 @@ export async function GET(request: Request) {
   if (!token) return Response.json({ error: 'GITHUB_TOKEN manquant' }, { status: 500 })
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }
   try {
-    // Une session déjà ouverte aujourd'hui ? (en cours ou en file) → rien à faire.
+    // Ouvre les DEUX sessions du jour (outbound + lead-magnets) ; chacune
+    // attend 15h00 Paris avant d'envoyer. Jamais deux sessions d'un même
+    // workflow le même jour.
     const today = new Date().toISOString().slice(0, 10)
-    const runs = await fetch(`${GH}/repos/${repo}/actions/workflows/${workflow}/runs?per_page=5&created=>=${today}`, { headers }).then((r) => r.json()).catch(() => null)
-    const open = (runs?.workflow_runs || []).filter((r: { status: string }) => ['queued', 'in_progress', 'waiting', 'requested', 'pending'].includes(r.status))
-    if (open.length && !force) return Response.json({ ok: true, skipped: 'session déjà ouverte aujourd’hui', run: open[0].html_url })
-
-    const res = await fetch(`${GH}/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
-      method: 'POST', headers, body: JSON.stringify({ ref: 'main' }),
-    })
-    if (res.status !== 204) {
-      const t = await res.text().catch(() => '')
-      return Response.json({ error: `GitHub ${res.status}: ${t.slice(0, 200)}` }, { status: 502 })
+    const results: Record<string, string> = {}
+    for (const wf of [workflow, 'cron-lead-magnets.yml']) {
+      const runs = await fetch(`${GH}/repos/${repo}/actions/workflows/${wf}/runs?per_page=5&created=>=${today}`, { headers }).then((r) => r.json()).catch(() => null)
+      const open = (runs?.workflow_runs || []).filter((r: { status: string }) => ['queued', 'in_progress', 'waiting', 'requested', 'pending'].includes(r.status))
+      if (open.length && !force) { results[wf] = 'déjà ouverte'; continue }
+      const res = await fetch(`${GH}/repos/${repo}/actions/workflows/${wf}/dispatches`, { method: 'POST', headers, body: JSON.stringify({ ref: 'main' }) })
+      results[wf] = res.status === 204 ? 'lancée' : `GitHub ${res.status}`
     }
-    return Response.json({ ok: true, dispatched: workflow, at: `${hour}h Paris` })
+    return Response.json({ ok: true, at: `${hour}h Paris`, sessions: results })
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }
