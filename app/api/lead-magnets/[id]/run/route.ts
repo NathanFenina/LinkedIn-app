@@ -26,7 +26,14 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params
-  const { dry_run = false } = await request.json().catch(() => ({}))
+  const body = await request.json().catch(() => ({}))
+  // SÉCURITÉ : cette route parcourt TOUS les commentaires d'un coup, sans
+  // espacement ni variantes — elle ne sert plus qu'en aperçu (dry_run). L'envoi
+  // réel passe par la session espacée (/publish → GitHub Actions → cron).
+  const dry_run = true
+  if (body && body.dry_run === false) {
+    return Response.json({ error: 'Envoi en masse désactivé : utilise « Lancer l’envoi » (session espacée, variantes, plafonds).' }, { status: 400 })
+  }
 
   try {
     const db = getServerSupabase()
