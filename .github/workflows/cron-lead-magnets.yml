@@ -1,6 +1,6 @@
 name: Lead Magnets Session
 # Session d'envoi des lead-magnets : envoie un DM aux commentateurs d'un post,
-# UN PAR UN, espacés d'un délai aléatoire de 2-3 min — comme une vraie personne.
+# UN PAR UN, espacés d'un délai aléatoire de 2,5-5 min — comme une vraie personne.
 # Tourne sur le runner GitHub Actions (jusqu'à 6h/job), donc pas de limite
 # Vercel 300s. L'app ne fait qu'"envoie le suivant" à chaque appel ; c'est cette
 # boucle qui gère l'espacement. Les garde-fous (limits.ts) bloquent au plafond
@@ -34,7 +34,7 @@ jobs:
             url="$url?campaign_id=$CAMPAIGN_ID"
           fi
 
-          for i in $(seq 1 200); do
+          for i in $(seq 1 400); do
             resp=$(curl -fsSL -X POST \
               -H "Authorization: Bearer $CRON_SECRET" \
               "$url")
@@ -49,6 +49,6 @@ jobs:
               break
             fi
 
-            # Espacement aléatoire 120-180s (2-3 min) avant le prochain envoi.
-            sleep $(( ( RANDOM % 61 ) + 120 ))
+            # Espacement aléatoire 150-300s (2,5-5 min) avant le prochain envoi.
+            sleep $(( ( RANDOM % 151 ) + 150 ))
           done

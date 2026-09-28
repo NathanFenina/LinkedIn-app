@@ -18,7 +18,7 @@ export const CAPS: Record<ActionType, number> = {
   // publiques des lead-magnets (« Envoyé en MP » / « ajoute-moi »). Monté à 50
   // pour que les deux cohabitent sans se bloquer.
   comment: 50,
-  dm: 50,
+  dm: 70, // 50 lead-magnets + 15 Séquenceur + marge (plafond propre aux lead-magnets dans le cron)
   invite: 15,
   accept: 20,
   profile_view: 120,
