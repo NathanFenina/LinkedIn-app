@@ -1,5 +1,5 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { detectNewPosts, generateVariants, publishToInstagram, getSetting, setSetting, listUnipileAccounts, sourceLinkedInAccount } from '@/lib/crosspost'
+import { detectNewPosts, generateVariants, publishToInstagram, getSetting, setSetting, listUnipileAccounts, sourceLinkedInAccount, claudeKey } from '@/lib/crosspost'
 import { errMsg } from '@/lib/utils'
 
 export const maxDuration = 120
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     try { accounts = await listUnipileAccounts() } catch { /* affiché vide */ }
     return Response.json({
       posts: posts || [],
-      settings: { instagram_account_id: ig, linkedin_account_id: li, claude: !!process.env.ANTHROPIC_API_KEY },
+      settings: { instagram_account_id: ig, linkedin_account_id: li, claude: !!claudeKey() },
       accounts,
     })
   } catch (err) {

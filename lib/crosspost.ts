@@ -40,11 +40,13 @@ async function ownerMemberId(db: Db, accountId: string): Promise<string> {
 
 // ---- Génération (API Claude) — touche légère ----
 const CLAUDE_MODEL = process.env.CROSSPOST_CLAUDE_MODEL || 'claude-sonnet-5'
+// La clé peut s'appeler ANTHROPIC_API_KEY, CLAUDE_API_KEY ou CLAUDE (selon ce qui est posé sur Vercel).
+export const claudeKey = () => process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || process.env.CLAUDE_KEY || process.env.CLAUDE || ''
 
 export async function generateVariants(sourceText: string, hasImage: boolean): Promise<{ variants: Variants; note: string }> {
   const fallback: Variants = { instagram: sourceText.slice(0, 2200), facebook: sourceText }
-  const key = process.env.ANTHROPIC_API_KEY
-  if (!key) return { variants: fallback, note: 'ANTHROPIC_API_KEY absente : variantes = texte d’origine' }
+  const key = claudeKey()
+  if (!key) return { variants: fallback, note: 'Clé Claude absente sur Vercel : variantes = texte d’origine' }
   const prompt = `Tu adaptes un post LinkedIn pour Instagram et Facebook. CONSIGNE PRINCIPALE : rester au plus près du texte d'origine — même ton, mêmes phrases, mêmes retours à la ligne. Tu ne réécris pas, tu ajustes à la marge.
 
 INSTAGRAM : garde le texte tel quel (coupe seulement si > 2 000 caractères, en gardant le sens), supprime les mentions LinkedIn (@) et les liens http (Instagram ne les rend pas cliquables : remplace par "lien en bio" si un lien était essentiel), termine par une ligne vide puis 3 à 5 hashtags pertinents en français. Pas d'emoji ajouté si le texte d'origine n'en a pas.${hasImage ? '' : ' Le post n’a pas d’image.'}

@@ -131,7 +131,7 @@ export default function CrossPostPage() {
           <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">Aucun compte Instagram choisi : ouvre « Réglages » et sélectionne-le pour pouvoir publier.</div>
         )}
         {s && !s.claude && (
-          <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">Clé ANTHROPIC_API_KEY absente sur Vercel : les variantes sont le texte d’origine tel quel (tu peux les éditer). Ajoute la clé pour l’adaptation automatique.</div>
+          <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">Clé Claude absente sur Vercel (ANTHROPIC_API_KEY ou CLAUDE_API_KEY) : les variantes sont le texte d’origine tel quel (tu peux les éditer).</div>
         )}
 
         {showSettings && s && (
