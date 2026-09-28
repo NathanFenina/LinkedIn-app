@@ -8,8 +8,7 @@
       "Read",
       "Glob",
       "Grep",
-      "mcp__Supabase__execute_sql",
-      "mcp__Supabase__apply_migration",
+      "mcp__Supabase__*",
       "mcp__github__actions_list",
       "mcp__github__get_job_logs"
     ]
