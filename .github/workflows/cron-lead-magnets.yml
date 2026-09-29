@@ -45,12 +45,24 @@ jobs:
           now=$(date -u +%s)
           if [ $now -lt $start ]; then echo "Attente jusqu'à 15h00 Paris ($(( (start-now)/60 )) min)…"; sleep $(( start - now )); fi
 
+          fails=0
           for i in $(seq 1 400); do
             if [ $(date -u +%s) -ge $end ]; then echo "18h Paris : fin de session."; break; fi
-            resp=$(curl -fsSL -X POST \
+            # Un round en erreur (500 Vercel, timeout, réseau) ne doit PAS tuer
+            # la session : on note l'erreur et on réessaie au round suivant.
+            # 5 erreurs d'affilée → on s'arrête.
+            resp=$(curl -sSL -X POST --max-time 290 \
               -H "Authorization: Bearer $CRON_SECRET" \
-              "$url")
-            echo "[$i] $resp"
+              "$url" || echo '{"error":"curl failed"}')
+            echo "[$i $(date -u +%H:%M)] $resp"
+
+            if echo "$resp" | grep -q '"error"'; then
+              fails=$((fails+1))
+              if [ $fails -ge 5 ]; then echo "5 erreurs d'affilée : fin de session."; break; fi
+              sleep $(( ( RANDOM % 61 ) + 60 ))
+              continue
+            fi
+            fails=0
 
             sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
 

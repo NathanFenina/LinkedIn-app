@@ -405,6 +405,7 @@ async function sendOne(
           // DM impossible (souvent 2e degré / messagerie fermée).
           // Option : au lieu d'échouer, on envoie une DEMANDE DE CONNEXION avec
           // une note (qui porte la ressource) → le 2e degré devient un lead.
+          let inviteError = ''
           if (campaign.invite_on_fail) {
             const invChk = await checkLimit(db, ACCOUNT_ID, 'invite')
             if (invChk.allowed) {
@@ -426,8 +427,9 @@ async function sendOne(
                 }).then(() => {}, () => {})
                 await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
                 return { sent: 1, campaign: campaign.name, name: n.commenter_name, step: 'invite' }
-              } catch {
+              } catch (invErr) {
                 // invitation aussi impossible → on marque échec (voir ci-dessous)
+                inviteError = String(invErr).slice(0, 120)
               }
             } else {
               // Plafond invitations atteint : on ne marque PAS (retry demain),
@@ -465,7 +467,7 @@ async function sendOne(
               commenter_name: n.commenter_name,
               commenter_profile_url: n.commenter_profile_url,
               comment_text: n.comment_text,
-              message_sent: `[ÉCHEC] ${String(err).slice(0, 180)}`,
+              message_sent: `[ÉCHEC] ${String(err).slice(0, 180)}${inviteError ? ` | invitation: ${inviteError}` : ''}`,
             })
             .then(
               () => {},
