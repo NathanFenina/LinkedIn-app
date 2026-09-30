@@ -292,7 +292,8 @@ async function ownProviderId(accountId: string): Promise<string | null> {
 // session pour la boucle GitHub Actions).
 async function sendOne(
   db: ReturnType<typeof getServerSupabase>,
-  campaignId: string | null
+  campaignId: string | null,
+  mode: 'dm' | 'comments' = 'dm'
 ): Promise<SendResult> {
   // Jamais d'envoi le week-end (heure de Paris).
   if (new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Paris', weekday: 'short' }).format(new Date()).match(/^(Sat|Sun)$/)) {
@@ -301,6 +302,9 @@ async function sendOne(
   let q = db.from('lead_magnet_campaigns').select('*').eq('active', true)
   if (campaignId) q = q.eq('id', campaignId)
   else q = q.eq('auto_run', true)
+  // Deux sessions séparées : 'dm' (DM / messages uniques) et 'comments'
+  // (campagnes « commentaire seul », leur propre rythme et plafond).
+  if (!campaignId) q = q.eq('comment_only', mode === 'comments')
   const { data: campaignsRaw } = await q
   if (!campaignsRaw || campaignsRaw.length === 0) {
     return { sent: 0, reason: campaignId ? 'Campagne inactive ou introuvable' : 'Aucune campagne active' }
@@ -309,7 +313,7 @@ async function sendOne(
   // Plafond quotidien lead-magnets (hors Séquenceur).
   const sentToday = await lmSentToday(db)
   const cap = await lmDailyCap(db)
-  if (sentToday >= cap) return { sent: 0, reason: `Plafond lead-magnets atteint (${sentToday}/${cap} aujourd'hui)` }
+  if (mode === 'dm' && sentToday >= cap) return { sent: 0, reason: `Plafond lead-magnets atteint (${sentToday}/${cap} aujourd'hui)` }
 
   // ALTERNANCE : on tourne l'ordre des campagnes à chaque envoi pour ne pas
   // enchaîner 20 messages identiques (rendu plus naturel).
@@ -561,7 +565,8 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   try {
     const db = getServerSupabase()
-    const result = await sendOne(db, campaignIdFrom(request, body))
+    const mode = new URL(request.url).searchParams.get('mode') === 'comments' ? 'comments' : 'dm'
+    const result = await sendOne(db, campaignIdFrom(request, body), mode)
     return Response.json({ ok: true, ...result })
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })

@@ -32,7 +32,7 @@ export async function GET(request: Request) {
     // workflow le même jour.
     const today = new Date().toISOString().slice(0, 10)
     const results: Record<string, string> = {}
-    for (const wf of [workflow, 'cron-lead-magnets.yml']) {
+    for (const wf of [workflow, 'cron-lead-magnets.yml', 'cron-lm-comments.yml']) {
       const runs = await fetch(`${GH}/repos/${repo}/actions/workflows/${wf}/runs?per_page=5&created=>=${today}`, { headers }).then((r) => r.json()).catch(() => null)
       const open = (runs?.workflow_runs || []).filter((r: { status: string }) => ['queued', 'in_progress', 'waiting', 'requested', 'pending'].includes(r.status))
       if (open.length && !force) { results[wf] = 'déjà ouverte'; continue }
