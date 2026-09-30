@@ -313,7 +313,10 @@ async function sendOne(
 
   // ALTERNANCE : on tourne l'ordre des campagnes à chaque envoi pour ne pas
   // enchaîner 20 messages identiques (rendu plus naturel).
-  const rot = sentToday % campaignsRaw.length
+  // Les réponses en commentaire comptent dans l'alternance (pas dans le plafond DM).
+  const { count: commentedToday } = await db.from('lead_magnet_sends').select('id', { count: 'exact', head: true })
+    .gte('comment_replied_at', parisDayStartISO()).ilike('message_sent', '[COMMENT]%')
+  const rot = (sentToday + (commentedToday || 0)) % campaignsRaw.length
   const campaigns = [...campaignsRaw.slice(rot), ...campaignsRaw.slice(0, rot)]
 
   for (const campaign of campaigns) {
@@ -361,7 +364,7 @@ async function sendOne(
     // Parcourt les commentaires, trouve le PREMIER commentateur pas encore
     // traité et qui matche le trigger, envoie un seul DM puis renvoie.
     let cursor: string | undefined = undefined
-    while (true) {
+    commentsLoop: while (true) {
       const { items, cursor: next } = await getPostComments(ACCOUNT_ID, socialId, cursor, 100)
       if (!items.length) break
       for (const c of items) {
@@ -379,6 +382,13 @@ async function sendOne(
           const { data: dnc } = await db.from('do_not_contact').select('provider_id').eq('provider_id', providerId).limit(1)
           if (dnc && dnc.length) { sentSet.add(providerId); continue }
           if (!n.comment_id) continue
+          // Étalement : plafond de réponses PAR JOUR pour cette campagne
+          // (app_settings.lm_comment_daily_cap, défaut 30) → jamais tout le post d'un coup.
+          const { data: cc } = await db.from('app_settings').select('value').eq('key', 'lm_comment_daily_cap').maybeSingle()
+          const commentCap = Number(cc?.value) || 30
+          const { count: commentsToday } = await db.from('lead_magnet_sends').select('id', { count: 'exact', head: true })
+            .eq('campaign_id', campaign.id).gte('comment_replied_at', parisDayStartISO())
+          if ((commentsToday || 0) >= commentCap) break commentsLoop // plafond du jour → campagne suivante
           // Déjà une réponse sous ce commentaire (souvent Nathan à la main) → on n'ajoute rien.
           if (((c as { reply_counter?: number }).reply_counter || 0) > 0) { sentSet.add(providerId); continue }
           const cchk = await checkLimit(db, ACCOUNT_ID, 'comment')
