@@ -15,7 +15,7 @@
 //                          en pause (active=false) coupe l'envoi au prochain tour.
 
 import { getServerSupabase } from '@/lib/supabase'
-import { getPostComments, startNewChat, sendMessage, getChatMessages, sendPostComment, sendLinkedInInvitation, normalizeComment, resolvePostSocialId, type NormalizedComment } from '@/lib/unipile'
+import { getPostComments, startNewChat, sendMessage, getChatMessages, sendPostComment, sendLinkedInInvitation, normalizeComment, resolvePostSocialId, getOwnProfile, type NormalizedComment } from '@/lib/unipile'
 import { checkLimit, logAction } from '@/lib/limits'
 import { pickVariant } from '@/lib/outreach-runner'
 import { extractFirstName } from '@/lib/gemini'
@@ -276,6 +276,17 @@ async function trySendBroadcast(
   return null
 }
 
+// provider_id du compte (Nathan) : on ne répond / n'écrit JAMAIS à ses propres
+// commentaires. Mis en cache par compte pour la durée de l'instance.
+const ownIdCache = new Map<string, string | null>()
+async function ownProviderId(accountId: string): Promise<string | null> {
+  if (ownIdCache.has(accountId)) return ownIdCache.get(accountId) || null
+  let id: string | null = null
+  try { id = (await getOwnProfile(accountId)).provider_id || null } catch { /* inconnu */ }
+  if (id) ownIdCache.set(accountId, id)
+  return id
+}
+
 // Envoie AU PLUS UN DM sur l'ensemble des campagnes candidates. Renvoie
 // { sent, campaign?, name? } — sent=0 signifie "plus rien à envoyer" (fin de
 // session pour la boucle GitHub Actions).
@@ -326,6 +337,7 @@ async function sendOne(
     const followup = await trySendFollowup(db, ACCOUNT_ID, campaign)
     if (followup) return followup
 
+    const ownId = await ownProviderId(ACCOUNT_ID)
     const { data: alreadySent } = await db
       .from('lead_magnet_sends')
       .select('commenter_provider_id')
@@ -358,6 +370,40 @@ async function sendOne(
         if (!providerId || sentSet.has(providerId)) continue
         const matches = !triggerKw || (n.comment_text || '').toLowerCase().includes(triggerKw)
         if (!matches) continue
+        if (ownId && providerId === ownId) continue // mon propre commentaire
+
+        // MODE « COMMENTAIRE SEUL » : pas de DM. On répond publiquement sous le
+        // commentaire de la personne (variantes « === »), une fois par personne.
+        // Seul « ne plus contacter » bloque (la ressource a été demandée).
+        if (campaign.comment_only) {
+          const { data: dnc } = await db.from('do_not_contact').select('provider_id').eq('provider_id', providerId).limit(1)
+          if (dnc && dnc.length) { sentSet.add(providerId); continue }
+          if (!n.comment_id) continue
+          const cchk = await checkLimit(db, ACCOUNT_ID, 'comment')
+          if (!cchk.allowed) return { sent: 0, reason: cchk.reason || 'Plafond commentaires atteint' }
+          const text = await personalize(pickVariant(campaign.comment_reply || campaign.message_template).text, n.commenter_name, campaign.magnet_url)
+          sentSet.add(providerId)
+          try {
+            await sendPostComment(ACCOUNT_ID, socialId, text, n.comment_id)
+            await logAction(db, ACCOUNT_ID, 'comment')
+            const now = new Date().toISOString()
+            await db.from('lead_magnet_sends').insert({
+              campaign_id: campaign.id, commenter_provider_id: providerId, commenter_name: n.commenter_name,
+              commenter_profile_url: n.commenter_profile_url, comment_text: n.comment_text,
+              message_sent: `[COMMENT] ${text}`, comment_replied_at: now,
+              webinar_invited_at: WEBINAR_LINK.test(text) ? now : null,
+            })
+            await db.from('lead_magnet_campaigns').update({ last_run_at: now }).eq('id', campaign.id)
+            return { sent: 1, campaign: campaign.name, name: n.commenter_name, step: 'comment' }
+          } catch (err) {
+            await db.from('lead_magnet_sends').insert({
+              campaign_id: campaign.id, commenter_provider_id: providerId, commenter_name: n.commenter_name,
+              commenter_profile_url: n.commenter_profile_url, comment_text: n.comment_text,
+              message_sent: `[ÉCHEC] commentaire : ${String(err).slice(0, 160)}`,
+            }).then(() => {}, () => {})
+            continue
+          }
+        }
 
         // Déjà invité au workshop par une autre campagne, ou « ne plus contacter »
         // → on mémorise sans envoyer (jamais deux invitations à la même personne).
