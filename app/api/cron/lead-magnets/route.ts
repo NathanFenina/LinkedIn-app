@@ -379,6 +379,8 @@ async function sendOne(
           const { data: dnc } = await db.from('do_not_contact').select('provider_id').eq('provider_id', providerId).limit(1)
           if (dnc && dnc.length) { sentSet.add(providerId); continue }
           if (!n.comment_id) continue
+          // Déjà une réponse sous ce commentaire (souvent Nathan à la main) → on n'ajoute rien.
+          if (((c as { reply_counter?: number }).reply_counter || 0) > 0) { sentSet.add(providerId); continue }
           const cchk = await checkLimit(db, ACCOUNT_ID, 'comment')
           if (!cchk.allowed) return { sent: 0, reason: cchk.reason || 'Plafond commentaires atteint' }
           const text = await personalize(pickVariant(campaign.comment_reply || campaign.message_template).text, n.commenter_name, campaign.magnet_url)

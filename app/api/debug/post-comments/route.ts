@@ -31,6 +31,9 @@ export async function GET(request: Request) {
       own_provider_id: me.provider_id || null,
       total: all.length,
       by_me: all.filter((c) => authorId(c) === me.provider_id).length,
+      with_replies: all.filter((c) => Number(c.reply_counter || 0) > 0).length,
+      distinct_authors: new Set(all.map(authorId).filter(Boolean)).size,
+      distinct_without_reply: new Set(all.filter((c) => !Number(c.reply_counter || 0)).map(authorId).filter(Boolean)).size,
       keys: all[0] ? Object.keys(all[0]) : [],
       sample: all.slice(0, 3),
     })
