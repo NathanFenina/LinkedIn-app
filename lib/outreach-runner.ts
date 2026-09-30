@@ -1,8 +1,8 @@
 import { getServerSupabase } from '@/lib/supabase'
-import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages, getChats, getConnections, sendLinkedInInvitation } from '@/lib/unipile'
+import { searchPeopleBySearchUrl, startNewChat, sendMessage, getChatMessages, getChats, getConnections, sendLinkedInInvitation, getUserProfile } from '@/lib/unipile'
 import { scoreProfile, generateIcebreaker } from '@/lib/gemini'
 import { getActiveAccountId } from '@/lib/account'
-import { guard } from '@/lib/limits'
+import { guard, checkLimit } from '@/lib/limits'
 import type { OutreachCampaign } from '@/types'
 
 type Db = ReturnType<typeof getServerSupabase>
@@ -399,6 +399,32 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       .limit(1)
       .maybeSingle()
     if (!toInvite) return { sent: 0, skipped_reason: 'Aucune invitation ni message en attente' }
+    // Prospect importé depuis un fichier (URL LinkedIn seulement) : on retrouve
+    // son provider_id MAINTENANT, juste avant l'invitation (1 vue de profil par
+    // invitation, jamais d'import en rafale). Doublon / ne plus contacter /
+    // déjà en relation → écarté sans rien envoyer.
+    if (!toInvite.provider_id && toInvite.public_identifier) {
+      // Pas de vue de profil si le plafond d'invitations du jour est déjà atteint.
+      const pre = await checkLimit(db, accountId, 'invite')
+      if (!pre.allowed) return { sent: 0, skipped_reason: pre.reason }
+      const gv = await guard(db, accountId, 'profile_view')
+      if (!gv.allowed) return { sent: 0, skipped_reason: gv.reason }
+      try {
+        const prof = await getUserProfile(accountId, toInvite.public_identifier as string)
+        const pid = prof.provider_id || null
+        if (!pid) throw new Error('provider_id introuvable')
+        const { data: dup } = await db.from('outreach_targets').select('id').eq('provider_id', pid).neq('id', toInvite.id).limit(1).maybeSingle()
+        const { data: dnc } = await db.from('do_not_contact').select('provider_id').eq('provider_id', pid).maybeSingle()
+        const firstDegree = prof.is_relationship === true || /FIRST|DISTANCE_1/i.test(prof.network_distance || '')
+        const why = dnc ? 'ne plus contacter' : dup ? 'déjà dans une autre campagne' : firstDegree ? 'déjà en relation' : null
+        await db.from('outreach_targets').update({ provider_id: pid, ...(why ? { status: 'skipped', error: why } : {}) }).eq('id', toInvite.id)
+        if (why) return { sent: 0, skipped_reason: `${toInvite.name} écarté : ${why}` }
+        toInvite.provider_id = pid
+      } catch (err) {
+        await db.from('outreach_targets').update({ status: 'error', error: `Profil introuvable : ${String(err).slice(0, 200)}` }).eq('id', toInvite.id)
+        return { sent: 0, error: String(err) }
+      }
+    }
     if (!toInvite.provider_id) {
       await db.from('outreach_targets').update({ status: 'error', error: 'Pas de provider_id pour inviter' }).eq('id', toInvite.id)
       return { sent: 0, error: 'Pas de provider_id' }

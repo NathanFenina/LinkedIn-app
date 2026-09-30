@@ -660,3 +660,18 @@ export async function createPost(accountId: string, text: string, imageUrls: str
   const data = await res.json()
   return { post_id: (data.post_id as string) || null }
 }
+
+// Profil LinkedIn par identifiant public (slug de l'URL /in/...). Sert à
+// retrouver le provider_id d'un prospect importé depuis un fichier, juste avant
+// de l'inviter (1 consultation de profil par invitation, pas de rafale).
+export async function getUserProfile(accountId: string, identifier: string): Promise<{
+  provider_id?: string
+  public_identifier?: string
+  first_name?: string
+  last_name?: string
+  headline?: string
+  network_distance?: string
+  is_relationship?: boolean
+}> {
+  return unipileFetch(`/users/${encodeURIComponent(identifier)}?account_id=${encodeURIComponent(accountId)}`)
+}
