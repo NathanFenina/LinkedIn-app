@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const socialIn = url.searchParams.get('social_id')
   try {
     const acc = await getActiveAccountId()
-    const socialId = await resolvePostSocialId(acc, socialIn, postUrl)
+    const socialId = await resolvePostSocialId(acc, socialIn, postUrl || '')
     if (!socialId) return Response.json({ error: 'social_id introuvable' }, { status: 400 })
     const me = await getOwnProfile(acc).catch(() => ({} as { provider_id?: string }))
     const all: Array<Record<string, unknown>> = []
