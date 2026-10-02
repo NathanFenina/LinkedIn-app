@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     const results: Record<string, string> = {}
     // ?only=<fichier.yml> : n'ouvre que cette session (ex : rattrapage du jour).
     const only = new URL(request.url).searchParams.get('only')
-    const all = [workflow, 'cron-lead-magnets.yml', 'cron-lm-comments.yml']
+    const all = [workflow, 'cron-lead-magnets.yml', 'cron-lm-comments.yml', 'cron-accept-invites.yml']
     for (const wf of only ? all.filter((w) => w === only) : all) {
       const runs = await fetch(`${GH}/repos/${repo}/actions/workflows/${wf}/runs?per_page=5&created=>=${today}`, { headers }).then((r) => r.json()).catch(() => null)
       const open = (runs?.workflow_runs || []).filter((r: { status: string }) => ['queued', 'in_progress', 'waiting', 'requested', 'pending'].includes(r.status))

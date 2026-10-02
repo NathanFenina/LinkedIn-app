@@ -1,37 +1,42 @@
 name: Auto-Accept Invitations
 # Accepte les invitations LinkedIn reçues, UNE PAR UNE, espacées de 2-3 min,
-# et envoie un message de bienvenue. Tourne une fois par jour (schedule) ou à la
-# demande. Respecte les plafonds (accept + dm) et le plafond quotidien de la
-# config. Mettre l'auto-accept sur off dans l'app coupe l'envoi au tour suivant.
+# avec le message de bienvenue, entre 15h et 18h Paris (lun-ven), comme les
+# autres envois. Ouverte vers 12h-13h par le cron Vercel /api/cron/dispatch-outreach,
+# puis attend 15h00. Plafond quotidien : config de l'app (défaut 20).
 on:
   schedule:
-    # 06:00 UTC ≈ 8h heure française (été). GitHub peut décaler de ~1h.
-    - cron: '0 6 * * 1-5'
+    - cron: '0 11 * * 1-5'   # filet de sécurité ; le vrai départ = cron Vercel
   workflow_dispatch:
+concurrency:
+  group: accept-invites-session
+  cancel-in-progress: false
 jobs:
   session:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 350
     steps:
-      - name: Run auto-accept session
+      - name: Run auto-accept session (15h00 → 18h Paris)
         env:
           APP_URL: https://linked-in-app-black.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          for i in $(seq 1 60); do
-            resp=$(curl -fsSL -X POST \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              "$APP_URL/api/cron/accept-invites")
-            echo "[$i] $resp"
-
-            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
-
-            # Rien accepté (plus d'invitation, plafond, ou désactivé) → fin.
-            if [ "${sent:-0}" = "0" ]; then
-              echo "Session terminée (sent=$sent)."
-              break
+          start=$(TZ=Europe/Paris date -d 'today 15:00' +%s)
+          end=$(TZ=Europe/Paris date -d 'today 18:00' +%s)
+          if [ $(date -u +%s) -ge $end ]; then echo "Après 18h Paris : rien."; exit 0; fi
+          now=$(date -u +%s)
+          if [ $now -lt $start ]; then echo "Attente jusqu'à 15h00 Paris ($(( (start-now)/60 )) min)…"; sleep $(( start - now )); fi
+          fails=0
+          for i in $(seq 1 80); do
+            if [ $(date -u +%s) -ge $end ]; then echo "18h Paris : fin de session."; break; fi
+            resp=$(curl -sSL -X POST --max-time 290 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/accept-invites" || echo '{"error":"curl failed"}')
+            echo "[$i $(date -u +%H:%M)] $resp"
+            if echo "$resp" | grep -q '"error"'; then
+              fails=$((fails+1))
+              if [ $fails -ge 5 ]; then echo "5 erreurs d'affilée : fin."; break; fi
+              sleep 90; continue
             fi
-
-            # Espacement aléatoire 120-180s (2-3 min) avant la prochaine.
+            fails=0
+            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
+            if [ "${sent:-0}" = "0" ]; then echo "Session terminée (sent=$sent)."; break; fi
             sleep $(( ( RANDOM % 61 ) + 120 ))
           done

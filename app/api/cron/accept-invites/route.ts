@@ -72,8 +72,13 @@ async function acceptOne(
     if (!accChk.allowed) continue
 
     // Première invitation en attente.
-    const { items } = await getReceivedInvitations(ACCOUNT_ID, undefined, 50)
-    const inv = items.find((i) => i.id && i.provider_id)
+    // On saute les invitations qui ont déjà échoué (sinon une seule invitation
+    // impossible à accepter bloque toute la file, jour après jour).
+    const { items } = await getReceivedInvitations(ACCOUNT_ID, undefined, 100)
+    const { data: failed } = await db.from('accepted_invites').select('provider_id')
+      .eq('linkedin_account_id', cfg.linkedin_account_id).like('welcome_message', '[ÉCHEC%')
+    const failedSet = new Set((failed || []).map((f) => f.provider_id))
+    const inv = items.find((i) => i.id && i.provider_id && !failedSet.has(i.provider_id))
     if (!inv) continue // rien à accepter pour ce compte
 
     try {
@@ -89,7 +94,8 @@ async function acceptOne(
         welcome_sent: false,
         welcome_message: `[ÉCHEC accept] ${String(err).slice(0, 150)}`,
       }).then(() => {}, () => {})
-      continue
+      // Échec noté → on renvoie sent=1 pour que la session passe à l'invitation suivante.
+      return { accepted: 1, name: inv.name, reason: 'échec, invitation suivante' }
     }
 
     // Message de bienvenue (best-effort, respecte le plafond DM).
