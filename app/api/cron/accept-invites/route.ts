@@ -11,6 +11,7 @@ import { getServerSupabase } from '@/lib/supabase'
 import { getReceivedInvitations, handleInvitation, startNewChat } from '@/lib/unipile'
 import { checkLimit, logAction } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
+import { buildLeadMagnetDM } from '@/lib/lead-magnet-dm'
 
 export const maxDuration = 300
 
@@ -98,10 +99,43 @@ async function acceptOne(
       return { accepted: 1, name: inv.name, reason: 'échec, invitation suivante' }
     }
 
-    // Message de bienvenue (best-effort, respecte le plafond DM).
+    // Cette personne a commenté un post lead-magnet sans être connectée (on lui a
+    // répondu « envoie-moi une invitation ») → au lieu du message de bienvenue,
+    // on lui envoie la RESSOURCE promise (+ PS workshop si jamais invitée).
     let welcomeSent = false
     let welcomeMsg: string | null = null
-    if (cfg.welcome_message?.trim()) {
+    let handledByLeadMagnet = false
+    if (inv.provider_id) {
+      const { data: pend } = await db.from('lead_magnet_sends')
+        .select('campaign_id, commenter_name, commenter_profile_url, comment_text, lead_magnet_campaigns!inner(id, active, comment_only, message_template, magnet_url, workshop_ps)')
+        .eq('commenter_provider_id', inv.provider_id).like('message_sent', '[COMMENT]%')
+        .eq('lead_magnet_campaigns.active', true).eq('lead_magnet_campaigns.comment_only', false)
+        .order('sent_at', { ascending: false }).limit(1)
+      const row = pend && pend[0] as unknown as { campaign_id: string; commenter_name: string | null; commenter_profile_url: string | null; comment_text: string | null; lead_magnet_campaigns: { message_template: string; magnet_url: string | null; workshop_ps: string | null } }
+      if (row) {
+        const { data: already } = await db.from('lead_magnet_sends').select('id').eq('campaign_id', row.campaign_id)
+          .eq('commenter_provider_id', inv.provider_id).not('message_sent', 'like', '[%').limit(1)
+        const dmChk = await checkLimit(db, ACCOUNT_ID, 'dm')
+        if (!(already && already.length) && dmChk.allowed) {
+          try {
+            const dm = await buildLeadMagnetDM(db, row.lead_magnet_campaigns, inv.name || row.commenter_name, inv.provider_id)
+            const chat = (await startNewChat(ACCOUNT_ID, inv.provider_id, dm.text)) as { chat_id?: string; id?: string }
+            await logAction(db, ACCOUNT_ID, 'dm')
+            const now = new Date().toISOString()
+            await db.from('lead_magnet_sends').insert({
+              campaign_id: row.campaign_id, commenter_provider_id: inv.provider_id, commenter_name: inv.name || row.commenter_name,
+              commenter_profile_url: row.commenter_profile_url, comment_text: row.comment_text,
+              message_sent: dm.text, chat_id: chat?.chat_id || chat?.id || null,
+              webinar_invited_at: dm.webinar ? now : null,
+            })
+            welcomeSent = true
+            welcomeMsg = `[RESSOURCE après connexion] ${dm.text}`
+          } catch { /* on retombe sur rien : pas de bienvenue générique en plus */ }
+        }
+        handledByLeadMagnet = true
+      }
+    }
+    if (!handledByLeadMagnet && cfg.welcome_message?.trim()) {
       const dmChk = await checkLimit(db, ACCOUNT_ID, 'dm')
       if (dmChk.allowed && inv.provider_id) {
         try {

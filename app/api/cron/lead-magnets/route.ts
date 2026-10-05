@@ -20,6 +20,7 @@ import { checkLimit, logAction } from '@/lib/limits'
 import { pickVariant } from '@/lib/outreach-runner'
 import { extractFirstName } from '@/lib/gemini'
 import { addBusinessDays } from '@/lib/utils'
+import { buildLeadMagnetDM, isDoNotContact } from '@/lib/lead-magnet-dm'
 
 const DEFAULT_COMMENT_REPLY = 'Envoyé en MP {prenom} 📩 (check tes messages 🙌)'
 const DEFAULT_NOTCONNECTED_REPLY = "Merci {prenom} 🙌 ajoute-moi en contact et je t'envoie la ressource en MP direct !"
@@ -82,7 +83,7 @@ async function postCommentReply(
   try {
     const chk = await checkLimit(db, ACCOUNT_ID, 'comment')
     if (!chk.allowed) return null
-    const text = await personalize(tpl, n.commenter_name, campaign.magnet_url)
+    const text = await personalize(pickVariant(tpl).text, n.commenter_name, campaign.magnet_url)
     await sendPostComment(ACCOUNT_ID, socialId, text, n.comment_id)
     await logAction(db, ACCOUNT_ID, 'comment')
     return new Date().toISOString()
@@ -305,6 +306,8 @@ async function sendOne(
   // Deux sessions séparées : 'dm' (DM / messages uniques) et 'comments'
   // (campagnes « commentaire seul », leur propre rythme et plafond).
   if (!campaignId) q = q.eq('comment_only', mode === 'comments')
+  // Date de démarrage : une campagne programmée ne part pas avant starts_at.
+  q = q.or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
   const { data: campaignsRaw } = await q
   if (!campaignsRaw || campaignsRaw.length === 0) {
     return { sent: 0, reason: campaignId ? 'Campagne inactive ou introuvable' : 'Aucune campagne active' }
@@ -423,7 +426,11 @@ async function sendOne(
 
         // Déjà invité au workshop par une autre campagne, ou « ne plus contacter »
         // → on mémorise sans envoyer (jamais deux invitations à la même personne).
-        if (await alreadyInvitedOrBanned(db, providerId)) {
+        // Commentaire qui a déjà une réponse (souvent Nathan à la main) → on n'y touche pas.
+        if (campaign.skip_if_replied && ((c as { reply_counter?: number }).reply_counter || 0) > 0) { sentSet.add(providerId); continue }
+        // Avec un PS workshop séparé, seul « ne plus contacter » bloque : la ressource
+        // part toujours, le PS workshop seulement si jamais invité.
+        if (campaign.workshop_ps?.trim() ? await isDoNotContact(db, providerId) : await alreadyInvitedOrBanned(db, providerId)) {
           sentSet.add(providerId)
           await db.from('lead_magnet_sends').insert({
             campaign_id: campaign.id, commenter_provider_id: providerId, commenter_name: n.commenter_name,
@@ -439,8 +446,12 @@ async function sendOne(
         if (!chk.allowed) return { sent: 0, reason: chk.reason || 'Plafond messages atteint' }
 
         // Variantes (séparées par une ligne « === ») tirées au hasard.
-        const personalised = await personalize(pickVariant(campaign.message_template).text, n.commenter_name, campaign.magnet_url)
+        const dm = await buildLeadMagnetDM(db, campaign, n.commenter_name, providerId)
+        const personalised = dm.text
+        const distance = (c as { author_details?: { network_distance?: string } }).author_details?.network_distance || ''
         try {
+          // Hors 1er degré : pas de tentative de DM → réponse « connecte-toi » en commentaire.
+          if (distance && distance !== 'DISTANCE_1') throw new Error(`hors réseau (${distance})`)
           const chat = (await startNewChat(ACCOUNT_ID, providerId, personalised)) as { chat_id?: string; id?: string }
           await logAction(db, ACCOUNT_ID, 'dm')
           // Réponse publique au commentaire (« Envoyé en MP ✅ »), best-effort.
@@ -459,7 +470,7 @@ async function sendOne(
             chat_id: chat?.chat_id || chat?.id || null,
             followup_due_at: followupDue,
             comment_replied_at: commentRepliedAt,
-            webinar_invited_at: WEBINAR_LINK.test(personalised) ? new Date().toISOString() : null,
+            webinar_invited_at: dm.webinar ? new Date().toISOString() : null,
           })
           await db.from('lead_magnet_campaigns').update({ last_run_at: new Date().toISOString() }).eq('id', campaign.id)
           return { sent: 1, campaign: campaign.name, name: n.commenter_name, step: 'dm' }
