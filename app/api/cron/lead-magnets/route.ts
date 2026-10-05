@@ -306,9 +306,10 @@ async function sendOne(
   // Deux sessions séparées : 'dm' (DM / messages uniques) et 'comments'
   // (campagnes « commentaire seul », leur propre rythme et plafond).
   if (!campaignId) q = q.eq('comment_only', mode === 'comments')
+  const { data: campaignsAll } = await q
   // Date de démarrage : une campagne programmée ne part pas avant starts_at.
-  q = q.or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
-  const { data: campaignsRaw } = await q
+  const nowMs = Date.now()
+  const campaignsRaw = (campaignsAll || []).filter((c: { starts_at?: string | null }) => !c.starts_at || new Date(c.starts_at).getTime() <= nowMs)
   if (!campaignsRaw || campaignsRaw.length === 0) {
     return { sent: 0, reason: campaignId ? 'Campagne inactive ou introuvable' : 'Aucune campagne active' }
   }
