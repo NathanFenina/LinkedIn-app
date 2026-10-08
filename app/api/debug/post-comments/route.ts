@@ -1,4 +1,4 @@
-import { getPostComments, getOwnProfile, resolvePostSocialId } from '@/lib/unipile'
+import { getPostComments, getOwnProfile, resolvePostSocialId, unipileFetch } from '@/lib/unipile'
 import { getActiveAccountId } from '@/lib/account'
 
 // Lecture seule : inspecte les commentaires d'un post (nombre, forme brute,
@@ -26,6 +26,14 @@ export async function GET(request: Request) {
       cursor = next
     }
     const authorId = (c: Record<string, unknown>) => ((c.author_details as { id?: string } | undefined)?.id) || null
+    // ?author=<nom> : renvoie les réponses publiées sous le commentaire de cette personne.
+    const author = url.searchParams.get('author')
+    if (author) {
+      const target = all.find((c) => String(c.author || '').toLowerCase().includes(author.toLowerCase()))
+      if (!target) return Response.json({ error: 'commentaire introuvable' }, { status: 404 })
+      const rep = await unipileFetch(`/posts/${encodeURIComponent(socialId)}/comments?account_id=${encodeURIComponent(acc)}&comment_id=${encodeURIComponent(String(target.id))}&limit=20`)
+      return Response.json({ comment: target.text, replies: ((rep.items || []) as Array<Record<string, unknown>>).map((r) => ({ author: r.author, text: r.text, date: r.date })) })
+    }
     return Response.json({
       social_id: socialId,
       own_provider_id: me.provider_id || null,

@@ -71,6 +71,8 @@ type LMCampaign = {
 
 // Répond publiquement au commentaire de la personne avec le texte fourni
 // (best-effort, ne bloque jamais l'envoi). Renvoie l'ISO si posté, sinon null.
+// Texte réellement publié par le dernier postCommentReply (pour l'historique).
+let lastPostedComment = ''
 async function postCommentReply(
   db: ReturnType<typeof getServerSupabase>,
   ACCOUNT_ID: string,
@@ -86,6 +88,7 @@ async function postCommentReply(
     const text = await personalize(pickVariant(tpl).text, n.commenter_name, campaign.magnet_url)
     await sendPostComment(ACCOUNT_ID, socialId, text, n.comment_id)
     await logAction(db, ACCOUNT_ID, 'comment')
+    lastPostedComment = text
     return new Date().toISOString()
   } catch {
     return null
@@ -525,7 +528,7 @@ async function sendOne(
                 commenter_name: n.commenter_name,
                 commenter_profile_url: n.commenter_profile_url,
                 comment_text: n.comment_text,
-                message_sent: `[COMMENT] ${notConnTpl}`,
+                message_sent: `[COMMENT] ${lastPostedComment || notConnTpl}`,
                 comment_replied_at: cRepliedAt,
               })
               .then(() => {}, () => {})
