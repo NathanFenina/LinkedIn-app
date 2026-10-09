@@ -400,6 +400,15 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       .limit(1)
       .maybeSingle()
     if (!toInvite) return { sent: 0, skipped_reason: 'Aucune invitation ni message en attente' }
+    // Plafond d'invitations PAR CAMPAGNE (alternance entre campagnes ; le plafond
+    // global LinkedIn reste appliqué par guard('invite')).
+    const inviteCap = (campaign as { invite_daily_cap?: number | null }).invite_daily_cap
+    if (inviteCap) {
+      const start = new Date(); start.setUTCHours(0, 0, 0, 0)
+      const { count: invitedToday } = await db.from('outreach_targets').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).gte('invited_at', start.toISOString())
+      if ((invitedToday || 0) >= inviteCap) return { sent: 0, skipped_reason: `Plafond invitations campagne atteint (${invitedToday}/${inviteCap})` }
+    }
     // Prospect importé depuis un fichier (URL LinkedIn seulement) : on retrouve
     // son provider_id MAINTENANT, juste avant l'invitation (1 vue de profil par
     // invitation, jamais d'import en rafale). Doublon / ne plus contacter /
