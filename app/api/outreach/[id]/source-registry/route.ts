@@ -130,7 +130,15 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       if (!match && companyId) {
         for (const kw of ['CEO', 'président', 'directeur général', 'fondateur']) {
           const people = await search(kw, true)
-          match = people.find((p) => ROLE_HEADLINE.test(p.headline || ''))
+          // Le titre doit être un rôle de dirigeant, et ne pas désigner une AUTRE boîte
+          // (« Fondateur chez X » alors que X n'est pas l'entreprise visée).
+          match = people.find((p) => {
+            const h = p.headline || ''
+            if (!ROLE_HEADLINE.test(h)) return false
+            const mentionsUs = companyTok.some((w) => norm(h).includes(w))
+            const mentionsOther = /( chez | at | @|@ |\|)/i.test(h) || / - /.test(h)
+            return mentionsUs || !mentionsOther
+          })
           if (match) { via = `titre LinkedIn (${kw})`; break }
         }
       }
