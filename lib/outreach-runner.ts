@@ -66,7 +66,8 @@ export function pickVariant(text: string | null): { text: string; variant: numbe
 // sinon repli neutre "ta boîte" (jamais de placeholder brut envoyé).
 function personalize(tpl: string, name: string | null, company?: string | null): string {
   const first = (name || '').split(' ')[0] || ''
-  const ent = (company || '').trim() || 'ta boîte'
+  // Repli neutre si la boîte est inconnue, au tutoiement ou au vouvoiement selon le message.
+  const ent = (company || '').trim() || (/\bvous\b|\bvotre\b/i.test(tpl || '') ? 'votre entreprise' : 'ta boîte')
   return (tpl || '')
     .replace(/\{prenom\}/gi, first)
     .replace(/\{nom\}/gi, name || '')
