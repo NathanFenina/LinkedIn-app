@@ -90,6 +90,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       stats.companies_seen++
       const companyName = e.nom_raison_sociale || e.nom_complet || ''
       if (!companyName || /holding|\bsci\b|participations?\b|financi[eè]re/i.test(companyName)) { stats.skipped_registry++; continue }
+      // Grands groupes / filiales de groupes : CA > 80 M€ → hors cible PME.
+      const caLast = lastCa(e.finances)
+      if (caLast && caLast.ca > 80_000_000) { stats.skipped_registry++; continue }
       const { data: dupSiren } = await db.from('outreach_targets').select('id').eq('siren', e.siren).limit(1)
       if (dupSiren && dupSiren.length) { stats.dup++; continue }
       const dir = (e.dirigeants || []).find((d) => d.type_dirigeant === 'personne physique' && d.nom && d.prenoms && ROLE_OK.test(d.qualite || '') && !ROLE_KO.test(d.qualite || ''))
@@ -142,6 +145,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
           if (match) { via = `titre LinkedIn (${kw})`; break }
         }
       }
+      // Profil masqué, ou titre qui n'est pas un poste de dirigeant (juriste, CIO, lead…) → écarté.
+      if (match && (/utilisateur linkedin|linkedin member/i.test(match.name || '') || /(juriste|legal|chief information officer|\bcio\b|\blead\b|consultant(e)? expert)/i.test(match.headline || ''))) match = undefined
       const pid = match?.provider_id || match?.id
       if (!match || !pid) { stats.not_found++; continue }
       const { data: dup } = await db.from('outreach_targets').select('id').eq('provider_id', pid).limit(1)
