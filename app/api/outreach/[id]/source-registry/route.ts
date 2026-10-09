@@ -17,6 +17,8 @@ const API = 'https://recherche-entreprises.api.gouv.fr/search'
 const TRANCHES: Record<string, string> = { '11': '10-19', '12': '20-49', '21': '50-99', '22': '100-199', '31': '200-249' }
 const ROLE_OK = /(pr[ée]sident|directeur g[ée]n[ée]ral|directrice g[ée]n[ée]rale|g[ée]rant|associ[ée] g[ée]rant)/i
 const ROLE_KO = /(commissaire|suppl[ée]ant|liquidateur|administrateur judiciaire)/i
+const ROLE_HEADLINE = /(\bceo\b|fondat|founder|pr[ée]sident|directeur g[ée]n[ée]ral|directrice g[ée]n[ée]rale|\bdg\b|managing director|g[ée]rant|associ[ée] fondat|managing partner)/i
+const STOP = new Set(['groupe', 'group', 'conseil', 'consulting', 'france', 'societe', 'services', 'management', 'partners', 'solutions'])
 
 type Dirigeant = { nom?: string; prenoms?: string; qualite?: string; type_dirigeant?: string }
 type Entreprise = {
@@ -91,37 +93,47 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       const { data: dupSiren } = await db.from('outreach_targets').select('id').eq('siren', e.siren).limit(1)
       if (dupSiren && dupSiren.length) { stats.dup++; continue }
       const dir = (e.dirigeants || []).find((d) => d.type_dirigeant === 'personne physique' && d.nom && d.prenoms && ROLE_OK.test(d.qualite || '') && !ROLE_KO.test(d.qualite || ''))
-      if (!dir) { stats.skipped_registry++; continue }
-      const prenom = (dir.prenoms || '').split(/[\s,]+/)[0]
-      const nom = dir.nom || ''
+      const companyTok = norm(companyName).replace(/\(.*?\)/g, ' ').split(' ').filter((w) => w.length > 3 && !STOP.has(w))
 
-      // 1) Entreprise sur LinkedIn (le nom commercial peut différer : on tente le nom du registre)
+      // 1) Page entreprise LinkedIn — gardée seulement si le nom correspond au registre.
       let companyId: string | null = null
-      let companyLabel = title(companyName)
+      let companyLabel = title(companyName.replace(/\s*\(.*?\)\s*/g, ' ').trim())
       try {
-        const m = await lookupSearchParameter(accountId, 'COMPANY', companyName, 3)
-        if (m[0]?.id) { companyId = m[0].id; if (m[0].title) companyLabel = m[0].title }
+        const m = await lookupSearchParameter(accountId, 'COMPANY', companyName.replace(/\s*\(.*?\)\s*/g, ' ').trim(), 5)
+        const hit = m.find((x) => x.id && companyTok.some((w) => norm(x.title || '').includes(w)))
+        if (hit) { companyId = hit.id; if (hit.title) companyLabel = hit.title }
       } catch { /* on tente sans */ }
-      await sleep(800)
+      await sleep(700)
 
-      // 2) Le dirigeant par son nom, dans l'entreprise si trouvée
-      let people: Person[] = []
-      try {
-        const r = await searchLinkedIn<Person>(accountId, { category: 'people', keywords: `${prenom} ${nom}`, limit: 10, ...(companyId ? { extra: { company: [companyId] } } : {}) })
-        people = r.items || []
-      } catch { /* ignoré */ }
-      await sleep(800)
-      const want = norm(`${prenom} ${nom}`)
-      const lastTok = norm(nom).split(' ').pop() || ''
-      const companyTok = norm(companyName).split(' ').filter((w) => w.length > 3)
-      const match = people.find((p) => {
-        const n = norm(p.name || `${p.first_name || ''} ${p.last_name || ''}`)
-        const nameOk = n === want || (n.includes(norm(prenom)) && n.includes(lastTok))
-        if (!nameOk) return false
-        if (companyId) return true
-        const h = norm(p.headline || '')
-        return companyTok.some((w) => h.includes(w))
-      })
+      const search = async (keywords: string, withCompany: boolean): Promise<Person[]> => {
+        try {
+          const r = await searchLinkedIn<Person>(accountId, { category: 'people', keywords, limit: 10, ...(withCompany && companyId ? { extra: { company: [companyId] } } : {}) })
+          await sleep(700)
+          return r.items || []
+        } catch { return [] }
+      }
+      const inCompany = (p: Person) => !!companyId || companyTok.some((w) => norm(p.headline || '').includes(w))
+      let match: Person | undefined
+      let via = ''
+      // 2) Le dirigeant nommé au registre
+      if (dir) {
+        const prenom = (dir.prenoms || '').split(/[\s,]+/)[0]
+        const nom = (dir.nom || '').replace(/\(.*?\)/g, '').trim()
+        const lastTok = norm(nom).split(' ').pop() || ''
+        const nameOk = (p: Person) => { const n = norm(p.name || `${p.first_name || ''} ${p.last_name || ''}`); return n.includes(norm(prenom)) && n.includes(lastTok) }
+        let people = await search(`${prenom} ${nom}`, true)
+        match = people.find((p) => nameOk(p) && inCompany(p))
+        if (!match && companyId) { people = await search(`${prenom} ${nom}`, false); match = people.find((p) => nameOk(p) && companyTok.some((w) => norm(p.headline || '').includes(w))) }
+        if (match) via = `dirigeant registre (${dir.qualite})`
+      }
+      // 3) Sinon : le dirigeant par son titre dans l'entreprise LinkedIn
+      if (!match && companyId) {
+        for (const kw of ['CEO', 'président', 'directeur général', 'fondateur']) {
+          const people = await search(kw, true)
+          match = people.find((p) => ROLE_HEADLINE.test(p.headline || ''))
+          if (match) { via = `titre LinkedIn (${kw})`; break }
+        }
+      }
       const pid = match?.provider_id || match?.id
       if (!match || !pid) { stats.not_found++; continue }
       const { data: dup } = await db.from('outreach_targets').select('id').eq('provider_id', pid).limit(1)
@@ -135,16 +147,16 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
         TRANCHES[e.tranche_effectif_salarie || ''] ? `${TRANCHES[e.tranche_effectif_salarie || '']} sal.` : null,
         ca ? `CA ${(ca.ca / 1e6).toFixed(1)} M€ (${ca.year})` : null,
         g != null ? `${g >= 0 ? '+' : ''}${Math.round(g * 100)} %` : null,
-        dir.qualite, e.siege?.libelle_commune,
+        via, e.siege?.libelle_commune,
       ].filter(Boolean).join(' · ')
       const score = 7 + (g != null && g > 0.1 ? 2 : g != null && g > 0 ? 1 : 0)
       const { error: insErr } = await db.from('outreach_targets').insert({
-        campaign_id: id, provider_id: pid, name: match.name || `${prenom} ${nom}`,
+        campaign_id: id, provider_id: pid, name: match.name || null,
         headline: match.headline ? `${match.headline} · ${companyLabel}` : companyLabel,
         company: companyLabel, profile_url: match.profile_url || null, public_identifier: match.public_identifier || null,
         score, score_reason: reason, status: 'sourced', siren: e.siren,
       })
-      if (!insErr) { stats.added++; added.push({ name: match.name || `${prenom} ${nom}`, company: companyLabel, headline: match.headline || null }) }
+      if (!insErr) { stats.added++; added.push({ name: match.name || '', company: companyLabel, headline: match.headline || null }) }
     }
 
     // Position suivante
