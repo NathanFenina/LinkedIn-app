@@ -17,6 +17,9 @@ import type { OutreachCampaign } from '@/types'
 export const maxDuration = 300
 
 const DECIDEUR = /(\bceo\b|fondat|founder|co-?fond|dirigeant|pr[ée]sident|directeur|directrice|director|head of|responsable|\bcmo\b|\bcto\b|\bcoo\b|\bcfo\b|chief|\bvp\b|vice[- ]pr[ée]sident|g[ée]rant|associ[ée]|managing|owner|partner)/i
+// Profils SEO (consultants, responsables SEO, référenceurs…) : rangés dans une
+// AUTRE campagne (offre Claude Code x SEO) au lieu d'être jetés.
+const SEO = /(\bseo\b|r[ée]f[ée]rencement|r[ée]f[ée]renceur|search marketing|\bgeo\b|\bsea\b|traffic manager)/i
 const EXCLU = /(freelance|ind[ée]pendant|consultant|\bseo\b|r[ée]f[ée]rencement|\bsea\b|growth hack|agence (web|digitale|marketing|seo|sea|de communication)|[ée]tudiant|stagiaire|alternan|open to work|en recherche|retrait|coach|formateur|formatrice|recruteur|talent acquisition|ghostwriter|copywriter)/i
 
 type Engager = { id: string; name: string; headline: string; distance: string; how: 'réaction' | 'commentaire' }
@@ -45,6 +48,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const maxPosts = Math.min(10, Number(body.max_posts ?? 5))
   const maxScore = Math.min(40, Number(body.max_candidates ?? 30))
   const reset = !!body.reset
+  const seoCampaignId: string | null = body.seo_campaign_id || null
   try {
     const db = getServerSupabase()
     const { data: campaign, error } = await db.from('outreach_campaigns').select('*').eq('id', id).single()
@@ -83,9 +87,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
     // 3) Décideurs uniquement, puis nettoyage.
     const stats = { engageurs: people.length, decideurs: 0, connus_ou_deja: 0, ajoutes: 0 }
+    const seoPeople = seoCampaignId ? people.filter((p) => SEO.test(p.headline) && !/(\b[ée]tudiant|stagiaire|alternan|open to work)/i.test(p.headline)) : []
     const cands = people.filter((p) => DECIDEUR.test(p.headline) && !EXCLU.test(p.headline))
     stats.decideurs = cands.length
-    const ids = cands.map((c) => c.id)
+    const ids = [...cands, ...seoPeople].map((c) => c.id)
     const known = new Set<string>()
     if (ids.length) {
       const [t, c, d, l] = await Promise.all([
@@ -108,6 +113,17 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     const fresh = cands.filter((c) => !known.has(c.id)).slice(0, maxScore)
     stats.connus_ou_deja = cands.length - cands.filter((c) => !known.has(c.id)).length
 
+    // 3b) Audience SEO : rangée telle quelle (pas de score), à valider plus tard.
+    let seoAdded = 0
+    for (const p of seoPeople.filter((c) => !known.has(c.id))) {
+      const { error: e2 } = await db.from('outreach_targets').insert({
+        campaign_id: seoCampaignId, provider_id: p.id, name: p.name, headline: p.headline, company: companyFromHeadline(p.headline),
+        score: 6, score_reason: `${p.how === 'réaction' ? 'A réagi' : 'A commenté'} : « ${post.topic} » · profil SEO`,
+        status: 'sourced', context: post.topic, connected_at: p.distance === 'DISTANCE_1' ? new Date().toISOString() : null,
+      })
+      if (!e2) { seoAdded++; known.add(p.id) }
+    }
+
     // 4) Score IA sur l'ICP de la campagne + insertion « à valider ».
     const added: Array<{ name: string; headline: string; score: number }> = []
     for (const p of fresh) {
@@ -129,7 +145,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     else if (state.phase === 'reactions') { state.phase = 'comments'; state.cursor = null }
     else { state.postIdx++; state.phase = 'reactions'; state.cursor = null }
     await db.from('app_settings').upsert({ key, value: JSON.stringify(state) }, { onConflict: 'key' })
-    return Response.json({ ok: true, done: state.postIdx >= state.posts.length, post: post.topic, phase: path, ...stats, added })
+    return Response.json({ ok: true, done: state.postIdx >= state.posts.length, post: post.topic, phase: path, ...stats, seo_ajoutes: seoAdded, added })
   } catch (err) {
     return Response.json({ error: errMsg(err) }, { status: 500 })
   }
