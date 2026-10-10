@@ -64,7 +64,7 @@ export function pickVariant(text: string | null): { text: string; variant: numbe
 
 // {prenom} = 1er mot du nom, {nom} = nom complet, {entreprise} = boîte connue
 // sinon repli neutre "ta boîte" (jamais de placeholder brut envoyé).
-function personalize(tpl: string, name: string | null, company?: string | null): string {
+function personalize(tpl: string, name: string | null, company?: string | null, context?: string | null): string {
   const first = (name || '').split(' ')[0] || ''
   // Repli neutre si la boîte est inconnue, au tutoiement ou au vouvoiement selon le message.
   const ent = (company || '').trim() || (/\bvous\b|\bvotre\b/i.test(tpl || '') ? 'votre entreprise' : 'ta boîte')
@@ -72,6 +72,8 @@ function personalize(tpl: string, name: string | null, company?: string | null):
     .replace(/\{prenom\}/gi, first)
     .replace(/\{nom\}/gi, name || '')
     .replace(/\{entreprise\}/gi, ent)
+    // {sujet} = sujet du post auquel la personne a réagi (campagne « engageurs »).
+    .replace(/\{sujet\}/gi, (context || '').trim() || 'un de mes posts')
 }
 
 // Balaye les conversations LinkedIn et renvoie provider_id → chat_id. Source de
@@ -358,7 +360,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       const g = await guard(db, accountId, 'dm')
       if (!g.allowed) return { sent: 0, skipped_reason: g.reason }
       try {
-        const text = personalize(campaign.msg2, due.name, due.company || companyFromHeadline(due.headline))
+        const text = personalize(campaign.msg2, due.name, due.company || companyFromHeadline(due.headline), (due as { context?: string | null }).context)
         await sendMessage(due.chat_id, text)
         // 'msg2_sent' = relance envoyée, séquence terminée (statut distinct de
         // 'done' pour que tu voies dans le Suivi qui a reçu 1 vs 2 messages).
@@ -400,6 +402,12 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       .limit(1)
       .maybeSingle()
     if (!toInvite) return { sent: 0, skipped_reason: 'Aucune invitation ni message en attente' }
+    // Déjà en relation (ex. engageur 1er degré) : pas d'invitation, il passe
+    // directement au message au tour suivant.
+    if ((toInvite as { connected_at?: string | null }).connected_at) {
+      await db.from('outreach_targets').update({ status: 'connected' }).eq('id', toInvite.id)
+      return { sent: 0, skipped_reason: `${toInvite.name} déjà en relation → message direct` }
+    }
     // Plafond d'invitations PAR CAMPAGNE (alternance entre campagnes ; le plafond
     // global LinkedIn reste appliqué par guard('invite')).
     const inviteCap = (campaign as { invite_daily_cap?: number | null }).invite_daily_cap
@@ -459,7 +467,7 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   try {
     const company = appr.company || companyFromHeadline(appr.headline)
     const picked = pickVariant(campaign.msg1)
-    let text = personalize(picked.text, appr.name, company)
+    let text = personalize(picked.text, appr.name, company, (appr as { context?: string | null }).context)
     // {accroche} : 1re ligne unique par prospect (icebreaker IA), générée au
     // moment de l'envoi et mémorisée. Si l'IA n'a rien de concret, la ligne
     // (et son retour à la ligne) disparaît proprement.
