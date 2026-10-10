@@ -79,7 +79,7 @@ function personalize(tpl: string, name: string | null, company?: string | null, 
 // Balaye les conversations LinkedIn et renvoie provider_id → chat_id. Source de
 // vérité fiable pour "déjà contacté" (le CRM est incomplet). `maxPages` borne la
 // profondeur : peu au sourcing (rapide), beaucoup au "Re-scan historique".
-async function sweepChats(accountId: string, maxPages = 25): Promise<Map<string, string>> {
+export async function sweepChats(accountId: string, maxPages = 25): Promise<Map<string, string>> {
   const map = new Map<string, string>()
   let cur: string | undefined = undefined
   let pages = 0

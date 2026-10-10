@@ -2,7 +2,7 @@ import { getServerSupabase } from '@/lib/supabase'
 import { getActiveAccountId } from '@/lib/account'
 import { unipileFetch, getOwnProfile } from '@/lib/unipile'
 import { scoreProfile } from '@/lib/gemini'
-import { campaignContext, companyFromHeadline } from '@/lib/outreach-runner'
+import { campaignContext, companyFromHeadline, sweepChats } from '@/lib/outreach-runner'
 import { errMsg } from '@/lib/utils'
 import type { OutreachCampaign } from '@/types'
 
@@ -29,7 +29,13 @@ function pickAuthor(it: Record<string, unknown>): Engager | null {
   if (!id || !name || a.is_company === true || a.type === 'COMPANY') return null
   return { id, name, headline: String(a.headline || a.occupation || ''), distance: String(a.network_distance || ''), how: 'réaction' }
 }
-const topicOf = (text: string) => (text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?…])\s/)[0].slice(0, 90)
+// Sujet lisible : gras/italique unicode → texte normal (NFKC), sans emoji,
+// première ligne, coupé proprement.
+const topicOf = (text: string) => {
+  const line = (text || '').normalize('NFKC').replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, '').split('\n').map((l) => l.trim()).find((l) => l.length > 8) || ''
+  const first = line.split(/(?<=[.!?…])\s/)[0]
+  return first.length > 80 ? first.slice(0, 80).replace(/\s+\S*$/, '') + '…' : first
+}
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
@@ -93,6 +99,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       ;(c.data || []).forEach((r) => { if (r.chat_id || ['client', 'prospect', 'do_not_contact', 'in_progress'].includes(r.status as string)) known.add(r.linkedin_id as string) })
       ;(d.data || []).forEach((r) => known.add(r.provider_id as string))
       ;(l.data || []).forEach((r) => known.add(r.commenter_provider_id as string))
+      // Déjà reçu le message de bienvenue (invitation acceptée).
+      const { data: acc2 } = await db.from('accepted_invites').select('provider_id').in('provider_id', ids)
+      ;(acc2 || []).forEach((r) => known.add(r.provider_id as string))
+      // Conversations LinkedIn récentes (source la plus fiable des « gens connus »).
+      try { const chats = await sweepChats(acc, 6); ids.forEach((i) => { if (chats.has(i)) known.add(i) }) } catch { /* sans */ }
     }
     const fresh = cands.filter((c) => !known.has(c.id)).slice(0, maxScore)
     stats.connus_ou_deja = cands.length - cands.filter((c) => !known.has(c.id)).length
@@ -101,6 +112,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     const added: Array<{ name: string; headline: string; score: number }> = []
     for (const p of fresh) {
       const s = await scoreProfile({ name: p.name, jobTitle: p.headline, myBusinessContext: campaignContext(campaign as OutreachCampaign) })
+      if (s.score < 5) continue // hors cible selon l'IA
       const company = companyFromHeadline(p.headline)
       const { error: insErr } = await db.from('outreach_targets').insert({
         campaign_id: id, provider_id: p.id, name: p.name, headline: p.headline, company,
