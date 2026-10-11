@@ -50,6 +50,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const reset = !!body.reset
   const seoCampaignId: string | null = body.seo_campaign_id || null
   const includeConnections = !!body.include_connections
+  // Audience séparée pour les CONNEXIONS (1er degré) : campagne « Engageurs — mes connexions ».
+  const connCampaignId: string | null = body.connections_campaign_id || null
   try {
     const db = getServerSupabase()
     const { data: campaign, error } = await db.from('outreach_campaigns').select('*').eq('id', id).single()
@@ -95,14 +97,22 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     const known = new Set<string>()
     if (ids.length) {
       const [t, c, d, l] = await Promise.all([
-        db.from('outreach_targets').select('provider_id').in('provider_id', ids),
+        db.from('outreach_targets').select('provider_id, status, last_sent_at, invited_at').in('provider_id', ids),
         db.from('contacts').select('linkedin_id, status, chat_id, last_message_at').in('linkedin_id', ids),
         db.from('do_not_contact').select('provider_id').in('provider_id', ids),
         db.from('lead_magnet_sends').select('commenter_provider_id').in('commenter_provider_id', ids).not('message_sent', 'like', '[%'),
       ])
       // Toujours exclus : déjà dans une campagne outbound (offre déjà proposée),
       // ne plus contacter, clients et prospects.
-      ;(t.data || []).forEach((r) => known.add(r.provider_id as string))
+      // Offre déjà proposée : exclu si c'était dans le DERNIER MOIS (ou en cours de
+      // campagne) ; une proposition de plus d'un mois sans suite redevient éligible
+      // en mode « connexions ».
+      const monthAgo = Date.now() - 30 * 86400000
+      ;(t.data || []).forEach((r) => {
+        const last = Math.max(r.last_sent_at ? Date.parse(r.last_sent_at as string) : 0, r.invited_at ? Date.parse(r.invited_at as string) : 0)
+        const pending = ['sourced', 'approved', 'invited', 'connected', 'msg1_sent', 'replied'].includes(r.status as string)
+        if (!includeConnections || pending || last > monthAgo) known.add(r.provider_id as string)
+      })
       ;(d.data || []).forEach((r) => known.add(r.provider_id as string))
       ;(c.data || []).forEach((r) => { if (['client', 'prospect', 'do_not_contact'].includes(r.status as string)) known.add(r.linkedin_id as string) })
       if (includeConnections) {
@@ -141,7 +151,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       if (s.score < 5) continue // hors cible selon l'IA
       const company = companyFromHeadline(p.headline)
       const { error: insErr } = await db.from('outreach_targets').insert({
-        campaign_id: id, provider_id: p.id, name: p.name, headline: p.headline, company,
+        campaign_id: connCampaignId && p.distance === 'DISTANCE_1' ? connCampaignId : id, provider_id: p.id, name: p.name, headline: p.headline, company,
         score: s.score, score_reason: `${p.how === 'réaction' ? 'A réagi' : 'A commenté'} : « ${post.topic} » · ${p.distance === 'DISTANCE_1' ? '1er degré' : p.distance ? '2e/3e degré' : ''} · ${s.reason}`,
         status: 'sourced', context: post.topic,
         // 1er degré : déjà en relation → message direct après validation, sans invitation.
