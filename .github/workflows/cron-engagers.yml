@@ -1,0 +1,40 @@
+name: Weekly Post Engagers Sourcing
+# Chaque lundi matin : récupère les personnes qui ont réagi / commenté les posts
+# de Nathan (30+ réactions, 30 derniers jours), garde les décideurs (campagne
+# « Engageurs de mes posts ») et range les profils SEO (campagne « Engageurs SEO »),
+# en excluant clients, prospects, ne plus contacter, conversations actives et
+# personnes à qui l'offre a déjà été proposée. Tout arrive en « à valider » :
+# rien n'est envoyé sans validation. Une note récapitulative est postée au cockpit.
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # lundi ~8h Paris
+  workflow_dispatch:
+concurrency:
+  group: engagers-sourcing
+  cancel-in-progress: false
+jobs:
+  sourcing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Source engagers
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CAMPAIGN: 3a0d8c65-1be9-487d-8b2c-6c81b0ecf95f
+          SEO_CAMPAIGN: bd7655c6-bd8f-4b6c-b1be-d5172ad66a07
+        run: |
+          base="\"min_reactions\":30,\"days\":30,\"max_posts\":10,\"max_candidates\":30,\"include_connections\":true,\"seo_campaign_id\":\"$SEO_CAMPAIGN\""
+          added=0; seo=0; first=1
+          for i in $(seq 1 60); do
+            if [ $first = 1 ]; then d="{$base,\"reset\":true}"; first=0; else d="{$base}"; fi
+            r=$(curl -s -m 300 -X POST "$APP_URL/api/outreach/$CAMPAIGN/source-engagers" -H 'Content-Type: application/json' -d "$d" || true)
+            echo "[$i] $(echo "$r" | head -c 300)"
+            a=$(echo "$r" | grep -o '"ajoutes":[0-9]*' | grep -o '[0-9]*$'); s=$(echo "$r" | grep -o '"seo_ajoutes":[0-9]*' | grep -o '[0-9]*$')
+            added=$((added + ${a:-0})); seo=$((seo + ${s:-0}))
+            echo "$r" | grep -q '"done":true' && break
+            if [ -z "$r" ] || echo "$r" | grep -q '"error"'; then sleep 30; fi
+            sleep 10
+          done
+          echo "Décideurs ajoutés: $added · SEO: $seo"
+          curl -s -X POST "$APP_URL/api/cockpit/notes" -H 'Content-Type: application/json' \
+            -d "{\"op\":\"add\",\"kind\":\"action\",\"title\":\"Engageurs de la semaine : $added décideurs + $seo profils SEO à valider\",\"body\":\"Récupérés des posts des 30 derniers jours. À valider dans Outreach → Engageurs de mes posts (et Engageurs SEO, en attente).\"}" || true
