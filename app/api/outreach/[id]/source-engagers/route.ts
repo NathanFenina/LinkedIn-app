@@ -49,6 +49,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const maxScore = Math.min(40, Number(body.max_candidates ?? 30))
   const reset = !!body.reset
   const seoCampaignId: string | null = body.seo_campaign_id || null
+  const includeConnections = !!body.include_connections
   try {
     const db = getServerSupabase()
     const { data: campaign, error } = await db.from('outreach_campaigns').select('*').eq('id', id).single()
@@ -95,20 +96,29 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     if (ids.length) {
       const [t, c, d, l] = await Promise.all([
         db.from('outreach_targets').select('provider_id').in('provider_id', ids),
-        db.from('contacts').select('linkedin_id, status, chat_id').in('linkedin_id', ids),
+        db.from('contacts').select('linkedin_id, status, chat_id, last_message_at').in('linkedin_id', ids),
         db.from('do_not_contact').select('provider_id').in('provider_id', ids),
         db.from('lead_magnet_sends').select('commenter_provider_id').in('commenter_provider_id', ids).not('message_sent', 'like', '[%'),
       ])
+      // Toujours exclus : déjà dans une campagne outbound (offre déjà proposée),
+      // ne plus contacter, clients et prospects.
       ;(t.data || []).forEach((r) => known.add(r.provider_id as string))
-      // Contact connu = conversation existante, ou statut client / prospect / ne plus contacter.
-      ;(c.data || []).forEach((r) => { if (r.chat_id || ['client', 'prospect', 'do_not_contact', 'in_progress'].includes(r.status as string)) known.add(r.linkedin_id as string) })
       ;(d.data || []).forEach((r) => known.add(r.provider_id as string))
-      ;(l.data || []).forEach((r) => known.add(r.commenter_provider_id as string))
-      // Déjà reçu le message de bienvenue (invitation acceptée).
-      const { data: acc2 } = await db.from('accepted_invites').select('provider_id').in('provider_id', ids)
-      ;(acc2 || []).forEach((r) => known.add(r.provider_id as string))
-      // Conversations LinkedIn récentes (source la plus fiable des « gens connus »).
-      try { const chats = await sweepChats(acc, 6); ids.forEach((i) => { if (chats.has(i)) known.add(i) }) } catch { /* sans */ }
+      ;(c.data || []).forEach((r) => { if (['client', 'prospect', 'do_not_contact'].includes(r.status as string)) known.add(r.linkedin_id as string) })
+      if (includeConnections) {
+        // MODE « MES CONNEXIONS » : on garde les gens connus (bienvenue, ressource
+        // lead-magnet, ancienne conversation) à qui l'accompagnement n'a jamais été
+        // proposé — sauf conversation ACTIVE (message il y a moins de 14 jours).
+        const recent = Date.now() - 14 * 86400000
+        ;(c.data || []).forEach((r) => { if (r.last_message_at && Date.parse(r.last_message_at as string) > recent) known.add(r.linkedin_id as string) })
+      } else {
+        // Contact connu = conversation existante, bienvenue reçue, ressource reçue.
+        ;(c.data || []).forEach((r) => { if (r.chat_id || r.status === 'in_progress') known.add(r.linkedin_id as string) })
+        ;(l.data || []).forEach((r) => known.add(r.commenter_provider_id as string))
+        const { data: acc2 } = await db.from('accepted_invites').select('provider_id').in('provider_id', ids)
+        ;(acc2 || []).forEach((r) => known.add(r.provider_id as string))
+        try { const chats = await sweepChats(acc, 6); ids.forEach((i) => { if (chats.has(i)) known.add(i) }) } catch { /* sans */ }
+      }
     }
     const fresh = cands.filter((c) => !known.has(c.id)).slice(0, maxScore)
     stats.connus_ou_deja = cands.length - cands.filter((c) => !known.has(c.id)).length
