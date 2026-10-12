@@ -36,7 +36,9 @@ jobs:
               sleep 90; continue
             fi
             fails=0
-            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
+            # Un autre envoi vient de partir → on attend 1-2 min et on réessaie.
+            if echo "$resp" | grep -q '"wait":true'; then sleep $(( ( RANDOM % 61 ) + 60 )); continue; fi
+            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$' || true)
             if [ "${sent:-0}" = "0" ]; then echo "Session terminée (sent=$sent)."; break; fi
             sleep $(( ( RANDOM % 61 ) + 120 ))
           done

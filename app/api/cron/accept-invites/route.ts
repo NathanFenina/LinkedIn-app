@@ -9,7 +9,7 @@
 
 import { getServerSupabase } from '@/lib/supabase'
 import { getReceivedInvitations, handleInvitation, startNewChat } from '@/lib/unipile'
-import { checkLimit, logAction } from '@/lib/limits'
+import { checkLimit, logAction, MIN_GAP_SEC, secondsSinceLastSend } from '@/lib/limits'
 import { extractFirstName } from '@/lib/gemini'
 import { buildLeadMagnetDM } from '@/lib/lead-magnet-dm'
 
@@ -176,6 +176,11 @@ export async function POST(request: Request) {
   }
   try {
     const db = getServerSupabase()
+    // Un envoi vient de partir (séquenceur…) → la session réessaie un peu plus tard.
+    const gap = await secondsSinceLastSend(db)
+    if (gap < MIN_GAP_SEC) {
+      return Response.json({ ok: true, sent: 0, accepted: 0, wait: true, reason: `Dernier envoi il y a ${Math.round(gap)}s` })
+    }
     const result = await acceptOne(db)
     // "sent" en plus de "accepted" pour que la boucle générique s'arrête quand accepted=0.
     return Response.json({ ok: true, sent: result.accepted, ...result })

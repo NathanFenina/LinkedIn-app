@@ -42,9 +42,11 @@ jobs:
             i=$((i+1))
             resp=$(curl -fsSL -X POST -H "Authorization: Bearer $CRON_SECRET" "$url" || echo '{"sent":0}')
             echo "[$i $(date -u +%H:%M)] $resp"
-            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$')
-            if [ "${sent:-0}" = "1" ]; then
-              sleep $(( ( RANDOM % 121 ) + 240 ))   # 4-6 min entre deux envois
+            sent=$(echo "$resp" | grep -o '"sent":[0-9]*' | head -1 | grep -o '[0-9]*$' || true)
+            if echo "$resp" | grep -q '"wait":true'; then
+              sleep $(( ( RANDOM % 61 ) + 60 ))      # autre envoi à l'instant → 1-2 min
+            elif [ "${sent:-0}" -ge 1 ]; then
+              sleep $(( ( RANDOM % 121 ) + 180 ))   # 3-5 min entre deux envois (1 envoi par appel)
             else
               sleep 300                              # rien à envoyer maintenant → on re-vérifie dans 5 min
             fi

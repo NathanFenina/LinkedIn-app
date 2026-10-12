@@ -115,6 +115,23 @@ export async function usageToday(db: Db, accountId: string): Promise<{
   return { total, globalCap: GLOBAL_CAP, perType }
 }
 
+// Espacement minimal entre deux envois visibles (message, invitation,
+// acceptation, commentaire), toutes sessions confondues : les sessions
+// tournent en parallèle, ce garde-fou évite qu'elles tirent en même temps.
+export const MIN_GAP_SEC = 90
+
+export async function secondsSinceLastSend(db: Db): Promise<number> {
+  const { data } = await db
+    .from('linkedin_actions')
+    .select('created_at')
+    .in('type', ['dm', 'invite', 'accept', 'comment'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!data?.created_at) return Infinity
+  return (Date.now() - new Date(data.created_at as string).getTime()) / 1000
+}
+
 // Délai aléatoire (ms) entre deux actions d'un bulk — jamais de rafale.
 export function humanDelayMs(minSec = 30, maxSec = 90): number {
   const lo = Math.min(minSec, maxSec)
