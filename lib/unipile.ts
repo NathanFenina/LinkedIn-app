@@ -65,10 +65,14 @@ export async function getConnections(accountId: string, limit = 200, cursor?: st
   return { items, cursor: (data.cursor as string | undefined) || undefined }
 }
 
-export async function startNewChat(accountId: string, linkedinUserId: string, text: string) {
+export async function startNewChat(accountId: string, linkedinUserId: string, text: string, opts: { inmail?: boolean } = {}) {
   return unipileFetch(`/chats`, {
     method: 'POST',
-    body: JSON.stringify({ account_id: accountId, attendees_ids: [linkedinUserId], text }),
+    body: JSON.stringify({
+      account_id: accountId, attendees_ids: [linkedinUserId], text,
+      // InMail (hors réseau) : crédits Premium, ou gratuit si la personne a un « profil ouvert ».
+      ...(opts.inmail ? { linkedin: { api: 'classic', inmail: true } } : {}),
+    }),
   }) as Promise<{ id: string }>
 }
 

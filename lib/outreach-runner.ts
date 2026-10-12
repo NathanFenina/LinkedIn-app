@@ -486,7 +486,9 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
     else {
       // Unipile renvoie { object:'ChatStarted', chat_id } (pas `id`) → sans ça le
       // chat_id restait vide et les réponses étaient invisibles.
-      const res = (await startNewChat(accountId, appr.provider_id!, text)) as { chat_id?: string; id?: string }
+      // Campagne « InMail » : la personne n'est pas en relation → envoi en InMail.
+      const useInmail = !!(campaign as { use_inmail?: boolean | null }).use_inmail
+      const res = (await startNewChat(accountId, appr.provider_id!, text, { inmail: useInmail })) as { chat_id?: string; id?: string }
       chatId = res?.chat_id || res?.id || null
     }
     const nextAt = new Date(Date.now() + (campaign.followup_days || 3) * 86400000).toISOString()
