@@ -29,7 +29,8 @@ jobs:
             if [ $first = 1 ]; then d="{$base,\"reset\":true}"; first=0; else d="{$base}"; fi
             r=$(curl -s -m 300 -X POST "$APP_URL/api/outreach/$CAMPAIGN/source-engagers" -H 'Content-Type: application/json' -d "$d" || true)
             echo "[$i] $(echo "$r" | head -c 300)"
-            a=$(echo "$r" | grep -o '"ajoutes":[0-9]*' | grep -o '[0-9]*$'); s=$(echo "$r" | grep -o '"seo_ajoutes":[0-9]*' | grep -o '[0-9]*$')
+            # || true : grep sans résultat renvoie 1 et tuerait le job (bash -e).
+            a=$(echo "$r" | grep -o '"ajoutes":[0-9]*' | grep -o '[0-9]*$' || true); s=$(echo "$r" | grep -o '"seo_ajoutes":[0-9]*' | grep -o '[0-9]*$' || true)
             added=$((added + ${a:-0})); seo=$((seo + ${s:-0}))
             echo "$r" | grep -q '"done":true' && break
             if [ -z "$r" ] || echo "$r" | grep -q '"error"'; then sleep 30; fi
