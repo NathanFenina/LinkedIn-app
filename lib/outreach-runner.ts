@@ -65,7 +65,11 @@ export function pickVariant(text: string | null): { text: string; variant: numbe
 // {prenom} = 1er mot du nom, {nom} = nom complet, {entreprise} = boîte connue
 // sinon repli neutre "ta boîte" (jamais de placeholder brut envoyé).
 function personalize(tpl: string, name: string | null, company?: string | null, context?: string | null): string {
-  const first = (name || '').split(' ')[0] || ''
+  // « NOM Prénom » (nom en majuscules d'abord) → on prend le prénom, pas le nom.
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean)
+  const isUpper = (w: string) => w.length > 1 && w === w.toUpperCase() && w !== w.toLowerCase()
+  const firstRaw = parts.length > 1 && isUpper(parts[0]) ? parts.find((w) => !isUpper(w)) || parts[0] : parts[0] || ''
+  const first = isUpper(firstRaw) ? firstRaw.charAt(0) + firstRaw.slice(1).toLowerCase() : firstRaw
   // Repli neutre si la boîte est inconnue, au tutoiement ou au vouvoiement selon le message.
   const ent = (company || '').trim() || (/\bvous\b|\bvotre\b/i.test(tpl || '') ? 'votre entreprise' : 'ta boîte')
   return (tpl || '')
@@ -73,7 +77,8 @@ function personalize(tpl: string, name: string | null, company?: string | null, 
     .replace(/\{nom\}/gi, name || '')
     .replace(/\{entreprise\}/gi, ent)
     // {sujet} = sujet du post auquel la personne a réagi (campagne « engageurs »).
-    .replace(/\{sujet\}/gi, (context || '').trim() || 'un de mes posts')
+    // Ponctuation finale retirée : le modèle ferme déjà « … ». (sinon « chacun. ». )
+    .replace(/\{sujet\}/gi, (context || '').trim().replace(/[\s.!?…:;,]+$/, '') || 'un de mes posts')
 }
 
 // Balaye les conversations LinkedIn et renvoie provider_id → chat_id. Source de
