@@ -341,14 +341,19 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       // Répondu ? On considère "répondu" dès qu'il existe LE MOINDRE message
       // entrant dans le fil (indépendant de l'ordre renvoyé par l'API).
       let replied = false
+      let seen = true
       try {
-        const msgs = await getChatMessages(due.chat_id, 15)
+        const msgs = (await getChatMessages(due.chat_id, 15)) as Array<{ timestamp?: string; is_sender?: number | boolean; seen?: number | boolean }>
         // Réponse = message entrant POSTÉRIEUR à notre msg1 (un vieux fil
         // d'avant la campagne ne compte pas, sinon on ne relance jamais).
         const since = (due.last_sent_at as string | null) || ''
-        replied = (msgs as Array<{ timestamp?: string; is_sender?: number | boolean }>).some(
+        replied = msgs.some(
           (m) => !(m.is_sender === 1 || m.is_sender === true) && (!since || (m.timestamp || '') > since)
         )
+        // « Vu » = notre dernier message a été lu par la personne.
+        const lastMine = msgs.filter((m) => m.is_sender === 1 || m.is_sender === true)
+          .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))[0]
+        seen = !!lastMine && (lastMine.seen === 1 || lastMine.seen === true)
       } catch {
         // Lecture impossible (erreur transitoire) : on NE prend PAS le risque de
         // relancer quelqu'un qui aurait répondu. On laisse la cible en
@@ -359,6 +364,11 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
       if (replied) {
         await db.from('outreach_targets').update({ status: 'replied', replied_at: new Date().toISOString() }).eq('id', due.id)
         continue // on ne relance pas — cible suivante
+      }
+      // Campagne « relance si lu » : pas encore lu → on repousse d'un jour.
+      if ((campaign as { msg2_only_if_seen?: boolean | null }).msg2_only_if_seen && !seen) {
+        await db.from('outreach_targets').update({ next_action_at: new Date(Date.now() + 86400000).toISOString() }).eq('id', due.id)
+        continue
       }
 
       // Relance légitime (aucune réponse) → on envoie.
