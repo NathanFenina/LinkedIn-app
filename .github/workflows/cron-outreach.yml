@@ -46,7 +46,7 @@ jobs:
             if echo "$resp" | grep -q '"wait":true'; then
               sleep $(( ( RANDOM % 61 ) + 60 ))      # autre envoi à l'instant → 1-2 min
             elif [ "${sent:-0}" -ge 1 ]; then
-              sleep $(( ( RANDOM % 121 ) + 180 ))   # 3-5 min entre deux envois (1 envoi par appel)
+              sleep $(( ( RANDOM % 91 ) + 150 ))    # 2,5-4 min entre deux envois (1 envoi par appel)
             else
               sleep 300                              # rien à envoyer maintenant → on re-vérifie dans 5 min
             fi
