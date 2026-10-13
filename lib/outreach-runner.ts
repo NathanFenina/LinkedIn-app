@@ -66,10 +66,12 @@ export function pickVariant(text: string | null): { text: string; variant: numbe
 // sinon repli neutre "ta boîte" (jamais de placeholder brut envoyé).
 function personalize(tpl: string, name: string | null, company?: string | null, context?: string | null): string {
   // « NOM Prénom » (nom en majuscules d'abord) → on prend le prénom, pas le nom.
-  const parts = (name || '').trim().split(/\s+/).filter(Boolean)
+  // Emojis / pictos retirés (« 💡 Jérémy », « ✅ Ludovic ✅ ») avant de chercher le prénom.
+  const parts = (name || '').replace(/[^\p{L}\s'.-]/gu, ' ').trim().split(/\s+/).filter(Boolean)
   const isUpper = (w: string) => w.length > 1 && w === w.toUpperCase() && w !== w.toLowerCase()
   const firstRaw = parts.length > 1 && isUpper(parts[0]) ? parts.find((w) => !isUpper(w)) || parts[0] : parts[0] || ''
-  const first = isUpper(firstRaw) ? firstRaw.charAt(0) + firstRaw.slice(1).toLowerCase() : firstRaw
+  const firstCased = isUpper(firstRaw) && firstRaw.length > 2 ?firstRaw.charAt(0) + firstRaw.slice(1).toLowerCase() : firstRaw
+  const first = firstCased.charAt(0).toUpperCase() + firstCased.slice(1)
   // Repli neutre si la boîte est inconnue, au tutoiement ou au vouvoiement selon le message.
   const ent = (company || '').trim() || (/\bvous\b|\bvotre\b/i.test(tpl || '') ? 'votre entreprise' : 'ta boîte')
   return (tpl || '')
