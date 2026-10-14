@@ -373,7 +373,8 @@ export async function nextApproved(db: Db) {
 // lui-même via le lien « intent » de X.
 export async function findReplyTargets(db: Db, opts: { query?: string; count?: number } = {}): Promise<{ read: number; added: number; cost: number }> {
   const token = await accessToken(db)
-  const query = opts.query || '(SEO OR GEO OR "Claude Code" OR "AI Overviews" OR "référencement") lang:fr -is:retweet -is:reply'
+  // « GEO » seul ramène de la géographie / géo-ingénierie → toujours associé à SEO ou IA.
+  const query = opts.query || '(SEO OR "Claude Code" OR "AI Overviews" OR "AI Mode" OR "référencement" OR "GEO SEO" OR "visibilité IA") lang:fr -is:retweet -is:reply'
   const p = new URLSearchParams({
     query, max_results: '30', 'tweet.fields': 'public_metrics,created_at', expansions: 'author_id', 'user.fields': 'username,name,public_metrics',
   })
@@ -410,7 +411,8 @@ EXTRAITS DE SON STYLE :
 ${style}
 
 Pour chaque post X ci-dessous, propose 2 réponses courtes (max 220 caractères), en français, tutoiement. Chaque réponse apporte un VRAI angle : un retour d'expérience concret, une nuance, un chiffre ou une question pertinente. Interdit : « super post », « merci du partage », flatterie vide, auto-promo, liens, hashtags.
-Pour chaque post, écris AUSSI une « citation » : ton commentaire publié en citant le post (max 240 caractères), qui se comprend seul (ton avis tranché, ton vécu ou ta nuance sur le sujet du post), sans @ ni lien ni hashtag.
+Pour chaque post, écris AUSSI une « citation » : ton commentaire publié en citant le post (max 240 caractères), qui se comprend seul (ton avis tranché, ton vécu ou ta nuance sur le sujet du post), sans @ ni lien ni hashtag. Ne cite Claude Code QUE si le post parle d'IA ou d'outils ; varie les angles (un chiffre, une erreur que tu vois chez les clients, un désaccord argumenté, une question).
+PERTINENCE : si un post ne parle PAS de SEO, GEO (référencement dans les IA), IA appliquée au marketing/contenu ou acquisition, mets "" comme citation et [] comme réponses pour ce post.
 Réponds UNIQUEMENT avec ce JSON : {"replies": [["réponse A post 1", "réponse B post 1"], ["…", "…"], …], "quotes": ["citation post 1", "citation post 2", …]} (même ordre que les posts).
 
 ${picked.map((t, i) => `POST ${i + 1} (@${t.u!.username}) :\n${t.text}`).join('\n\n')}`
@@ -425,7 +427,9 @@ ${picked.map((t, i) => `POST ${i + 1} (@${t.u!.username}) :\n${t.text}`).join('\
   const readCost = (data.data || []).length * prices0.read + users.size * 0.01
   let added = 0
   for (const [i, t] of picked.entries()) {
+    const offTopic = !quotes[i] && !(drafts[i] || []).length
     const { error } = await db.from('x_reply_targets').insert({
+      status: offTopic ? 'skipped' : 'todo',
       tweet_id: t.id, author_username: t.u!.username, author_name: t.u!.name, author_followers: t.u!.followers,
       text: t.text, likes: t.public_metrics?.like_count || 0, replies: t.public_metrics?.reply_count || 0,
       posted_at: t.created_at || null, drafts: drafts[i] || [], quote_text: quotes[i] || null,
