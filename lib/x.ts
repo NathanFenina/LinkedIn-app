@@ -22,10 +22,10 @@ export async function xPrices(db: Db) {
   try { return { ...def, ...(raw ? JSON.parse(raw) : {}) } } catch { return def }
 }
 
-export interface XSettings { max_per_day: number; monthly_cap_usd: number; premium: boolean }
+export interface XSettings { max_per_day: number; monthly_cap_usd: number; premium: boolean; quotes_per_day: number; mention_replies_per_day: number }
 export async function xSettings(db: Db): Promise<XSettings> {
   const raw = await getSetting(db, 'x_settings')
-  const def: XSettings = { max_per_day: 2, monthly_cap_usd: 15, premium: false }
+  const def: XSettings = { max_per_day: 2, monthly_cap_usd: 20, premium: false, quotes_per_day: 6, mention_replies_per_day: 10 }
   try { return { ...def, ...(raw ? JSON.parse(raw) : {}) } } catch { return def }
 }
 
@@ -106,11 +106,11 @@ export function xLength(text: string): number {
 }
 
 // ---- Publication ----
-async function createPost(token: string, text: string, replyTo?: string, mediaIds: string[] = []): Promise<string> {
+async function createPost(token: string, text: string, replyTo?: string, mediaIds: string[] = [], quoteId?: string): Promise<string> {
   const res = await fetch(`${API}/tweets`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, ...(replyTo ? { reply: { in_reply_to_tweet_id: replyTo } } : {}), ...(mediaIds.length ? { media: { media_ids: mediaIds } } : {}) }),
+    body: JSON.stringify({ text, ...(replyTo ? { reply: { in_reply_to_tweet_id: replyTo } } : {}), ...(mediaIds.length ? { media: { media_ids: mediaIds } } : {}), ...(quoteId ? { quote_tweet_id: quoteId } : {}) }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`X ${res.status} : ${JSON.stringify(data).slice(0, 300)}`)
@@ -155,8 +155,13 @@ async function uploadMedia(token: string, m: XMedia): Promise<string> {
 
 export async function monthSpend(db: Db): Promise<number> {
   const start = new Date(); start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0)
-  const { data } = await db.from('x_posts').select('cost_usd').gte('published_at', start.toISOString())
-  return (data || []).reduce((s, r) => s + Number(r.cost_usd || 0), 0)
+  const since = start.toISOString()
+  const [a, b, c] = await Promise.all([
+    db.from('x_posts').select('cost_usd').gte('published_at', since),
+    db.from('x_reply_targets').select('cost_usd').gte('created_at', since),
+    db.from('x_auto_replies').select('cost_usd').gte('created_at', since),
+  ])
+  return [a.data, b.data, c.data].flat().reduce((s, r) => s + Number(r?.cost_usd || 0), 0)
 }
 
 export async function publishXPost(db: Db, id: string): Promise<{ ids: string[] }> {
@@ -395,6 +400,7 @@ export async function findReplyTargets(db: Db, opts: { query?: string; count?: n
 
   // 2 brouillons par post, en un seul appel IA.
   let drafts: string[][] = picked.map(() => [])
+  let quotes: string[] = picked.map(() => '')
   if (picked.length) {
     // Style : extraits de ses vrais posts LinkedIn, pour éviter les réponses « lisses ».
     const { data: mine } = await db.from('x_posts').select('source_text').order('reactions', { ascending: false }).limit(4)
@@ -404,21 +410,26 @@ EXTRAITS DE SON STYLE :
 ${style}
 
 Pour chaque post X ci-dessous, propose 2 réponses courtes (max 220 caractères), en français, tutoiement. Chaque réponse apporte un VRAI angle : un retour d'expérience concret, une nuance, un chiffre ou une question pertinente. Interdit : « super post », « merci du partage », flatterie vide, auto-promo, liens, hashtags.
-Réponds UNIQUEMENT avec ce JSON : {"replies": [["réponse A post 1", "réponse B post 1"], ["…", "…"], …]} (même ordre que les posts).
+Pour chaque post, écris AUSSI une « citation » : ton commentaire publié en citant le post (max 240 caractères), qui se comprend seul (ton avis tranché, ton vécu ou ta nuance sur le sujet du post), sans @ ni lien ni hashtag.
+Réponds UNIQUEMENT avec ce JSON : {"replies": [["réponse A post 1", "réponse B post 1"], ["…", "…"], …], "quotes": ["citation post 1", "citation post 2", …]} (même ordre que les posts).
 
 ${picked.map((t, i) => `POST ${i + 1} (@${t.u!.username}) :\n${t.text}`).join('\n\n')}`
     try {
       const out = await geminiText(prompt)
-      const parsed = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as { replies?: string[][] }
+      const parsed = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as { replies?: string[][]; quotes?: string[] }
       drafts = picked.map((_, i) => (parsed.replies?.[i] || []).map((r) => String(r).trim()).filter(Boolean).slice(0, 2))
+      quotes = picked.map((_, i) => String(parsed.quotes?.[i] || '').replace(/https?:\/\/\S+/g, '').trim())
     } catch { /* brouillons vides : Nathan écrit lui-même */ }
   }
+  const prices0 = await xPrices(db)
+  const readCost = (data.data || []).length * prices0.read + users.size * 0.01
   let added = 0
   for (const [i, t] of picked.entries()) {
     const { error } = await db.from('x_reply_targets').insert({
       tweet_id: t.id, author_username: t.u!.username, author_name: t.u!.name, author_followers: t.u!.followers,
       text: t.text, likes: t.public_metrics?.like_count || 0, replies: t.public_metrics?.reply_count || 0,
-      posted_at: t.created_at || null, drafts: drafts[i] || [],
+      posted_at: t.created_at || null, drafts: drafts[i] || [], quote_text: quotes[i] || null,
+      cost_usd: i === 0 ? readCost : 0,
     })
     if (!error) added++
   }
@@ -431,4 +442,92 @@ export async function publishedToday(db: Db): Promise<number> {
   const start = new Date(); start.setUTCHours(0, 0, 0, 0)
   const { count } = await db.from('x_posts').select('id', { count: 'exact', head: true }).gte('published_at', start.toISOString())
   return count || 0
+}
+
+
+// ---- ENGAGEMENT AUTOMATIQUE (autorisé par X, sans intervention) ----
+const startOfDay = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.toISOString() }
+
+// Citations : publie N posts « citation » par jour (ton avis sur un post SEO/GEO/IA
+// d'un autre créateur). Ce ne sont pas des réponses → non concernés par la
+// restriction de février 2026. Appelé à chaque créneau (max `perRun`).
+export async function autoQuotes(db: Db, perRun = 2): Promise<{ posted: number; reason?: string }> {
+  const settings = await xSettings(db)
+  const { count } = await db.from('x_reply_targets').select('id', { count: 'exact', head: true }).eq('status', 'quoted').gte('quoted_at', startOfDay())
+  const left = Math.min(perRun, settings.quotes_per_day - (count || 0))
+  if (left <= 0) return { posted: 0, reason: 'plafond citations du jour' }
+  const prices = await xPrices(db)
+  if ((await monthSpend(db)) + prices.post > settings.monthly_cap_usd) return { posted: 0, reason: 'plafond mensuel' }
+  const since = new Date(Date.now() - 2 * 86400000).toISOString()
+  const { data: targets } = await db.from('x_reply_targets').select('*').eq('status', 'todo').not('quote_text', 'is', null).gte('created_at', since).order('author_followers', { ascending: false }).limit(left)
+  if (!targets?.length) return { posted: 0, reason: 'aucune cible' }
+  const token = await accessToken(db)
+  let posted = 0
+  for (const t of targets) {
+    const text = String(t.quote_text || '').trim()
+    if (!text || xLength(text) > 280) { await db.from('x_reply_targets').update({ status: 'skipped' }).eq('id', t.id); continue }
+    try {
+      const xid = await createPost(token, text, undefined, [], t.tweet_id as string)
+      await db.from('x_reply_targets').update({ status: 'quoted', x_post_id: xid, quoted_at: new Date().toISOString(), cost_usd: Number(t.cost_usd || 0) + prices.post, updated_at: new Date().toISOString() }).eq('id', t.id)
+      posted++
+      if (posted < targets.length) await new Promise((r) => setTimeout(r, 45_000))
+    } catch (e) {
+      await db.from('x_reply_targets').update({ status: 'skipped', updated_at: new Date().toISOString() }).eq('id', t.id)
+      if (/\b(401|403|429)\b/.test(String(e))) return { posted, reason: String(e).slice(0, 200) }
+    }
+  }
+  return { posted }
+}
+
+// Réponses aux personnes qui MENTIONNENT Nathan (ou répondent à ses posts) :
+// autorisé par l'API car elles l'ont « invoqué ». Réponse dans son style, ou rien
+// si le message n'appelle pas de réponse (spam, simple emoji…).
+export async function autoReplyMentions(db: Db, max = 5): Promise<{ read: number; replied: number }> {
+  const settings = await xSettings(db)
+  const { count } = await db.from('x_auto_replies').select('id', { count: 'exact', head: true }).eq('status', 'sent').gte('created_at', startOfDay())
+  const left = Math.min(max, settings.mention_replies_per_day - (count || 0))
+  if (left <= 0) return { read: 0, replied: 0 }
+  const tokens = JSON.parse((await getSetting(db, 'x_tokens')) || '{}') as { user_id?: string; username?: string }
+  if (!tokens.user_id) return { read: 0, replied: 0 }
+  const token = await accessToken(db)
+  const sinceId = await getSetting(db, 'x_mentions_since_id')
+  const p = new URLSearchParams({ max_results: '20', 'tweet.fields': 'author_id,created_at,conversation_id', expansions: 'author_id', 'user.fields': 'username' })
+  if (sinceId) p.set('since_id', sinceId)
+  else p.set('start_time', new Date(Date.now() - 2 * 86400000).toISOString())
+  const res = await fetch(`${API}/users/${tokens.user_id}/mentions?${p.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`X mentions ${res.status} : ${JSON.stringify(data).slice(0, 200)}`)
+  const items = (data.data || []) as Array<{ id: string; text: string; author_id: string }>
+  if (data.meta?.newest_id) await setSetting(db, 'x_mentions_since_id', data.meta.newest_id)
+  const users = new Map(((data.includes?.users || []) as Array<{ id: string; username: string }>).map((u) => [u.id, u.username]))
+  const prices = await xPrices(db)
+  const readCost = items.length * prices.read
+  const { data: mine } = await db.from('x_posts').select('source_text').order('reactions', { ascending: false }).limit(3)
+  const style = (mine || []).map((m) => String(m.source_text).slice(0, 300)).join('\n---\n')
+  let replied = 0
+  for (const [i, m] of items.filter((x) => x.author_id !== tokens.user_id).entries()) {
+    if (replied >= left) break
+    let reply = ''
+    try {
+      reply = (await geminiText(`Tu es Nathan Fenina (SEO, GEO, IA, Claude Code). Quelqu'un t'a écrit sur X :
+"""${m.text}"""
+Réponds-lui comme Nathan (tutoiement, court, chaleureux, concret, max 200 caractères, sans lien ni hashtag), dans ce style :
+${style}
+Si le message n'appelle pas de réponse (spam, pub, simple emoji, insulte, hors sujet), réponds exactement : SKIP
+Réponds UNIQUEMENT avec le texte de la réponse.`)).trim().replace(/^["«]|["»]$/g, '')
+    } catch { reply = '' }
+    const base = { mention_id: m.id, author_username: users.get(m.author_id) || null, mention_text: m.text, cost_usd: i === 0 ? readCost : 0 }
+    if (!reply || /^SKIP$/i.test(reply) || xLength(reply) > 280) {
+      await db.from('x_auto_replies').insert({ ...base, status: 'skipped' }).then(() => {}, () => {})
+      continue
+    }
+    try {
+      const xid = await createPost(token, reply.replace(/https?:\/\/\S+/g, ''), m.id)
+      await db.from('x_auto_replies').insert({ ...base, reply_text: reply, x_post_id: xid, status: 'sent', cost_usd: base.cost_usd + prices.post })
+      replied++
+    } catch (e) {
+      await db.from('x_auto_replies').insert({ ...base, reply_text: reply, status: 'error', error: String(e).slice(0, 300) }).then(() => {}, () => {})
+    }
+  }
+  return { read: items.length, replied }
 }

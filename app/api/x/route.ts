@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { setSetting, claudeKey } from '@/lib/crosspost'
-import { xAccount, xSettings, xPrices, monthSpend, publishedToday, importLinkedInPosts, generateXParts, faithfulParts, publishXPost, findReplyTargets } from '@/lib/x'
+import { xAccount, xSettings, xPrices, monthSpend, publishedToday, importLinkedInPosts, generateXParts, faithfulParts, publishXPost, findReplyTargets, autoQuotes, autoReplyMentions } from '@/lib/x'
 import { errMsg } from '@/lib/utils'
 
 export const maxDuration = 300
@@ -25,11 +25,13 @@ export async function GET(request: Request) {
     const { data: posts } = await q
     const [account, settings, prices, spent, today] = await Promise.all([xAccount(db), xSettings(db), xPrices(db), monthSpend(db), publishedToday(db)])
     const { data: replies } = await db.from('x_reply_targets').select('*').eq('status', 'todo').order('author_followers', { ascending: false }).limit(20)
+    const { data: quoted } = await db.from('x_reply_targets').select('author_username, quote_text, x_post_id, quoted_at').eq('status', 'quoted').order('quoted_at', { ascending: false }).limit(10)
+    const { data: autoReplies } = await db.from('x_auto_replies').select('author_username, mention_text, reply_text, x_post_id, status, created_at').order('created_at', { ascending: false }).limit(10)
     const { data: counts } = await db.from('x_posts').select('status')
     const by: Record<string, number> = {}
     for (const c of counts || []) by[c.status as string] = (by[c.status as string] || 0) + 1
     return Response.json({
-      posts: posts || [], replies: replies || [], account, settings, prices, spent, today, counts: by,
+      posts: posts || [], replies: replies || [], quoted: quoted || [], autoReplies: autoReplies || [], account, settings, prices, spent, today, counts: by,
       env: { client: !!process.env.X_CLIENT_ID && !!process.env.X_CLIENT_SECRET, claude: !!claudeKey() },
     })
   } catch (err) {
@@ -53,6 +55,8 @@ export async function POST(request: Request) {
         max_per_day: body.max_per_day != null ? Math.max(0, Math.min(10, Number(body.max_per_day))) : cur.max_per_day,
         monthly_cap_usd: body.monthly_cap_usd != null ? Math.max(0, Number(body.monthly_cap_usd)) : cur.monthly_cap_usd,
         premium: body.premium != null ? !!body.premium : cur.premium,
+        quotes_per_day: body.quotes_per_day != null ? Math.max(0, Math.min(10, Number(body.quotes_per_day))) : cur.quotes_per_day,
+        mention_replies_per_day: body.mention_replies_per_day != null ? Math.max(0, Math.min(20, Number(body.mention_replies_per_day))) : cur.mention_replies_per_day,
       }
       await setSetting(db, 'x_settings', JSON.stringify(next))
       return Response.json({ ok: true, settings: next })
@@ -60,6 +64,11 @@ export async function POST(request: Request) {
     if (op === 'find_replies') {
       const r = await findReplyTargets(db, { count: Number(body.count) || 10 })
       return Response.json({ ok: true, ...r })
+    }
+    if (op === 'auto_engage') {
+      const mentions = await autoReplyMentions(db, 5).catch((e) => ({ error: String(e) }))
+      const quotes = await autoQuotes(db, Number(body.quotes) || 1).catch((e) => ({ error: String(e) }))
+      return Response.json({ ok: true, mentions, quotes })
     }
     if (op === 'reply_status') {
       await db.from('x_reply_targets').update({ status: String(body.status || 'done'), updated_at: now }).eq('id', id)

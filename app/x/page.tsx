@@ -25,8 +25,10 @@ interface Reply { id: string; tweet_id: string; author_username: string; author_
 interface Data {
   posts: Post[]
   replies: Reply[]
+  quoted: { author_username: string; quote_text: string; x_post_id: string; quoted_at: string }[]
+  autoReplies: { author_username: string; mention_text: string; reply_text: string | null; x_post_id: string | null; status: string; created_at: string }[]
   account: { connected: boolean; username?: string }
-  settings: { max_per_day: number; monthly_cap_usd: number; premium: boolean }
+  settings: { max_per_day: number; monthly_cap_usd: number; premium: boolean; quotes_per_day: number; mention_replies_per_day: number }
   prices: { post: number; post_link: number; read: number }
   spent: number
   today: number
@@ -170,10 +172,28 @@ export default function XPage() {
             <label className="text-xs text-gray-600">Plafond mensuel ($)
               <input type="number" min={0} defaultValue={s.monthly_cap_usd} onBlur={(e) => saveSettings({ monthly_cap_usd: e.target.value })} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-1.5" />
             </label>
+            <label className="text-xs text-gray-600">Citations auto / jour
+              <input type="number" min={0} max={10} defaultValue={s.quotes_per_day} onBlur={(e) => saveSettings({ quotes_per_day: e.target.value })} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-1.5" />
+            </label>
+            <label className="text-xs text-gray-600">Réponses auto aux mentions / jour
+              <input type="number" min={0} max={20} defaultValue={s.mention_replies_per_day} onBlur={(e) => saveSettings({ mention_replies_per_day: e.target.value })} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-1.5" />
+            </label>
             <label className="text-xs text-gray-600 flex items-center gap-2 mt-5">
               <input type="checkbox" defaultChecked={s.premium} onChange={(e) => saveSettings({ premium: e.target.checked })} /> Compte X Premium (posts longs au lieu de threads)
             </label>
             <p className="md:col-span-3 text-[11px] text-gray-400">Tarifs : {data?.prices.post} $ / post · {data?.prices.post_link} $ avec lien · {data?.prices.read} $ / lecture. Un thread = 1 post facturé par partie. {data?.account.connected && <button onClick={() => { if (confirm('Déconnecter le compte X ?')) run('disc', async () => { await call({ op: 'disconnect' }); await load() }) }} className="underline ml-1">Déconnecter X</button>}</p>
+          </div>
+        )}
+
+        {data && (data.quoted.length > 0 || data.autoReplies.length > 0) && (
+          <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2 text-[12px]">
+            <div className="text-sm font-medium text-gray-900">🤖 Engagement automatique (derniers)</div>
+            {data.quoted.map((q, i) => (
+              <div key={'q' + i} className="flex gap-2"><span className="text-gray-400 shrink-0">citation · @{q.author_username}</span><span className="text-gray-800 flex-1">{q.quote_text}</span>{data.account.username && <a href={`https://x.com/${data.account.username}/status/${q.x_post_id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 shrink-0">voir</a>}</div>
+            ))}
+            {data.autoReplies.filter((r) => r.status === 'sent').map((r, i) => (
+              <div key={'r' + i} className="flex gap-2"><span className="text-gray-400 shrink-0">réponse · @{r.author_username}</span><span className="text-gray-800 flex-1">{r.reply_text}</span>{data.account.username && r.x_post_id && <a href={`https://x.com/${data.account.username}/status/${r.x_post_id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 shrink-0">voir</a>}</div>
+            ))}
           </div>
         )}
 

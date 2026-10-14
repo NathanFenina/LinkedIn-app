@@ -6,7 +6,7 @@
 // Auth: header "Authorization: Bearer ${CRON_SECRET}".
 
 import { getServerSupabase } from '@/lib/supabase'
-import { importLinkedInPosts, nextApproved, publishXPost, publishedToday, xAccount, xSettings, findReplyTargets } from '@/lib/x'
+import { importLinkedInPosts, nextApproved, publishXPost, publishedToday, xAccount, xSettings, findReplyTargets, autoQuotes, autoReplyMentions } from '@/lib/x'
 
 export const maxDuration = 300
 
@@ -28,6 +28,9 @@ export async function GET(request: Request) {
       const { count } = await db.from('x_reply_targets').select('id', { count: 'exact', head: true }).gte('created_at', start.toISOString())
       if ((count || 0) < 10) out.replies = await findReplyTargets(db, { count: 10 - (count || 0) }).catch((e) => ({ error: String(e) }))
     }
+    // Engagement automatique (sans Nathan) : réponses aux mentions + citations commentées.
+    out.mentions = await autoReplyMentions(db, 5).catch((e) => ({ error: String(e) }))
+    out.quotes = await autoQuotes(db, 2).catch((e) => ({ error: String(e) }))
     const { max_per_day } = await xSettings(db)
     const today = await publishedToday(db)
     if (today >= max_per_day) return Response.json({ ...out, published: 0, reason: `Plafond du jour atteint (${today}/${max_per_day})` })
