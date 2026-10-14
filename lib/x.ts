@@ -181,7 +181,14 @@ export async function publishXPost(db: Db, id: string): Promise<{ ids: string[] 
   const video = media.find((m) => m.type === 'video')
   const toUpload = video ? [video] : media.filter((m) => m.type === 'image').slice(0, 4)
   const mediaIds: string[] = []
-  for (const m of toUpload) mediaIds.push(await uploadMedia(token, m))
+  try {
+    for (const m of toUpload) mediaIds.push(await uploadMedia(token, m))
+  } catch (e) {
+    // Erreur visible dans la page (sinon le post reste « validé » sans explication).
+    const hint = /\b403\b/.test(String(e)) ? ' → reconnecte ton compte X (autorisation médias)' : ''
+    await db.from('x_posts').update({ error: `${String(e).slice(0, 300)}${hint}`, updated_at: new Date().toISOString() }).eq('id', id)
+    throw e
+  }
   const ids: string[] = []
   let error: string | null = null
   for (const [i, p] of parts.entries()) {
