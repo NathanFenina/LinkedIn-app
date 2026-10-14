@@ -396,7 +396,14 @@ export async function findReplyTargets(db: Db, opts: { query?: string; count?: n
   // 2 brouillons par post, en un seul appel IA.
   let drafts: string[][] = picked.map(() => [])
   if (picked.length) {
-    const prompt = `Tu es Nathan Fenina (SEO, GEO, IA, Claude Code). Pour chaque post X ci-dessous, propose 2 réponses courtes (max 220 caractères), en français, ton direct et amical, tutoiement si le post tutoie. Chaque réponse apporte un VRAI angle : un retour d'expérience concret, une nuance, un chiffre ou une question pertinente. Interdit : « super post », « merci du partage », flatterie vide, auto-promo, liens, hashtags.
+    // Style : extraits de ses vrais posts LinkedIn, pour éviter les réponses « lisses ».
+    const { data: mine } = await db.from('x_posts').select('source_text').order('reactions', { ascending: false }).limit(4)
+    const style = (mine || []).map((m) => String(m.source_text).slice(0, 350)).join('\n---\n')
+    const prompt = `Tu es Nathan Fenina (SEO, GEO, IA, Claude Code). Écris EXACTEMENT avec sa voix, comme dans ces extraits de ses posts : phrases courtes, tutoiement, franc, concret, parfois une pointe d'humour ou un emoji 😉, vécu terrain (clients, Claude Code, pages déployées, chiffres réels).
+EXTRAITS DE SON STYLE :
+${style}
+
+Pour chaque post X ci-dessous, propose 2 réponses courtes (max 220 caractères), en français, tutoiement. Chaque réponse apporte un VRAI angle : un retour d'expérience concret, une nuance, un chiffre ou une question pertinente. Interdit : « super post », « merci du partage », flatterie vide, auto-promo, liens, hashtags.
 Réponds UNIQUEMENT avec ce JSON : {"replies": [["réponse A post 1", "réponse B post 1"], ["…", "…"], …]} (même ordre que les posts).
 
 ${picked.map((t, i) => `POST ${i + 1} (@${t.u!.username}) :\n${t.text}`).join('\n\n')}`
