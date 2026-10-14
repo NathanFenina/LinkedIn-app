@@ -123,6 +123,23 @@ export default function XPage() {
     const text = replyText[r.id] ?? r.drafts[0] ?? ''
     window.open(`https://x.com/intent/post?in_reply_to=${r.tweet_id}&text=${encodeURIComponent(text)}`, '_blank', 'noopener')
   }
+  // Ouvre tous les commentaires préparés d'un coup (1 onglet X pré-rempli chacun),
+  // puis les marque « fait ». Le navigateur peut demander d'autoriser les pop-ups.
+  const openAll = () => run('openall', async () => {
+    const list = data?.replies || []
+    let opened = 0
+    for (const r of list) {
+      const text = replyText[r.id] ?? r.drafts[0] ?? ''
+      if (!text) continue
+      const w = window.open(`https://x.com/intent/post?in_reply_to=${r.tweet_id}&text=${encodeURIComponent(text)}`, '_blank')
+      if (!w) break
+      opened++
+      await call({ op: 'reply_status', id: r.id, status: 'done' })
+    }
+    if (opened < list.length) setErr(`${opened}/${list.length} onglets ouverts : autorise les pop-ups pour ce site (icône dans la barre d’adresse), puis reclique.`)
+    else setMsg(`${opened} onglets X ouverts : clique « Poster » dans chacun.`)
+    await load()
+  })
   const saveSettings = (patch: Record<string, unknown>) => run('settings', async () => { await call({ op: 'settings', ...patch }); await load(); setMsg('Réglages enregistrés.') })
 
   const s = data?.settings
@@ -203,6 +220,7 @@ export default function XPage() {
               <span className="text-sm font-medium text-gray-900">💬 Commentaires à poster ({data.replies.length})</span>
               <span className="text-[11px] text-gray-400">X interdit les réponses par API : choisis un brouillon, « Répondre sur X » ouvre X pré-rempli, tu cliques Poster.</span>
               <span className="flex-1" />
+              {data.replies.length > 0 && <button onClick={openAll} disabled={!!busy} className="text-xs px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-800 inline-flex items-center gap-1.5 disabled:opacity-50"><Send className="w-3.5 h-3.5" /> Ouvrir les {data.replies.length}</button>}
               <button onClick={findReplies} disabled={!!busy || !data.account.connected} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'replies' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔎'} Trouver 10 posts à commenter</button>
             </div>
             {data.replies.map((r) => (
