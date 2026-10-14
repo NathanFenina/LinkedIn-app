@@ -344,10 +344,73 @@ export async function importLinkedInPosts(db: Db, opts: { archive: boolean; days
 
 // Prochain post à publier : nouveaux d'abord (ordre de validation), puis archive (meilleur engagement).
 export async function nextApproved(db: Db) {
-  const { data: fresh } = await db.from('x_posts').select('id').eq('status', 'approved').eq('kind', 'new').order('approved_at', { ascending: true }).limit(1).maybeSingle()
+  // 1. Posts planifiés à une date précise, arrivés à échéance (marge 1 h : le cron passe à heure fixe).
+  const soon = new Date(Date.now() + 3600_000).toISOString()
+  const { data: due } = await db.from('x_posts').select('id').eq('status', 'approved').not('scheduled_for', 'is', null).lte('scheduled_for', soon).order('scheduled_for', { ascending: true }).limit(1).maybeSingle()
+  if (due) return due.id as string
+  // 2. Sinon file sans date : nouveaux d'abord, puis archive (meilleur engagement).
+  const { data: fresh } = await db.from('x_posts').select('id').eq('status', 'approved').is('scheduled_for', null).eq('kind', 'new').order('approved_at', { ascending: true }).limit(1).maybeSingle()
   if (fresh) return fresh.id as string
-  const { data: arch } = await db.from('x_posts').select('id').eq('status', 'approved').eq('kind', 'archive').order('reactions', { ascending: false }).limit(1).maybeSingle()
+  const { data: arch } = await db.from('x_posts').select('id').eq('status', 'approved').is('scheduled_for', null).eq('kind', 'archive').order('reactions', { ascending: false }).limit(1).maybeSingle()
   return (arch?.id as string) || null
+}
+
+// ---- Commentaires sur les posts d'autres créateurs (MANUELS) ----
+// L'API interdit de répondre à quelqu'un qui ne nous a pas mentionné (depuis
+// le 23/02/2026) → on lit les posts, on prépare 2 brouillons, Nathan poste
+// lui-même via le lien « intent » de X.
+export async function findReplyTargets(db: Db, opts: { query?: string; count?: number } = {}): Promise<{ read: number; added: number; cost: number }> {
+  const token = await accessToken(db)
+  const query = opts.query || '(SEO OR GEO OR "Claude Code" OR "AI Overviews" OR "référencement") lang:fr -is:retweet -is:reply'
+  const p = new URLSearchParams({
+    query, max_results: '30', 'tweet.fields': 'public_metrics,created_at', expansions: 'author_id', 'user.fields': 'username,name,public_metrics',
+  })
+  const res = await fetch(`${API}/tweets/search/recent?${p.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`X recherche ${res.status} : ${JSON.stringify(data).slice(0, 300)}`)
+  const users = new Map<string, { username: string; name: string; followers: number }>()
+  for (const u of (data.includes?.users || []) as Array<{ id: string; username: string; name: string; public_metrics?: { followers_count?: number } }>) {
+    users.set(u.id, { username: u.username, name: u.name, followers: u.public_metrics?.followers_count || 0 })
+  }
+  const me = JSON.parse((await getSetting(db, 'x_tokens')) || '{}').user_id
+  const tweets = ((data.data || []) as Array<{ id: string; text: string; author_id: string; created_at?: string; public_metrics?: { like_count?: number; reply_count?: number } }>)
+    .filter((t) => t.author_id !== me)
+    .map((t) => ({ ...t, u: users.get(t.author_id) }))
+    .filter((t) => t.u && t.u.followers >= 500)
+    .sort((a, b) => ((b.u!.followers / 1000) + (b.public_metrics?.like_count || 0)) - ((a.u!.followers / 1000) + (a.public_metrics?.like_count || 0)))
+  const { data: known } = await db.from('x_reply_targets').select('tweet_id, author_username')
+  const seen = new Set((known || []).map((k) => k.tweet_id as string))
+  const authorsDone = new Set<string>()
+  const picked = tweets.filter((t) => {
+    if (seen.has(t.id) || authorsDone.has(t.u!.username)) return false
+    authorsDone.add(t.u!.username); return true
+  }).slice(0, opts.count || 10)
+
+  // 2 brouillons par post, en un seul appel IA.
+  let drafts: string[][] = picked.map(() => [])
+  if (picked.length) {
+    const prompt = `Tu es Nathan Fenina (SEO, GEO, IA, Claude Code). Pour chaque post X ci-dessous, propose 2 réponses courtes (max 220 caractères), en français, ton direct et amical, tutoiement si le post tutoie. Chaque réponse apporte un VRAI angle : un retour d'expérience concret, une nuance, un chiffre ou une question pertinente. Interdit : « super post », « merci du partage », flatterie vide, auto-promo, liens, hashtags.
+Réponds UNIQUEMENT avec ce JSON : {"replies": [["réponse A post 1", "réponse B post 1"], ["…", "…"], …]} (même ordre que les posts).
+
+${picked.map((t, i) => `POST ${i + 1} (@${t.u!.username}) :\n${t.text}`).join('\n\n')}`
+    try {
+      const out = await geminiText(prompt)
+      const parsed = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as { replies?: string[][] }
+      drafts = picked.map((_, i) => (parsed.replies?.[i] || []).map((r) => String(r).trim()).filter(Boolean).slice(0, 2))
+    } catch { /* brouillons vides : Nathan écrit lui-même */ }
+  }
+  let added = 0
+  for (const [i, t] of picked.entries()) {
+    const { error } = await db.from('x_reply_targets').insert({
+      tweet_id: t.id, author_username: t.u!.username, author_name: t.u!.name, author_followers: t.u!.followers,
+      text: t.text, likes: t.public_metrics?.like_count || 0, replies: t.public_metrics?.reply_count || 0,
+      posted_at: t.created_at || null, drafts: drafts[i] || [],
+    })
+    if (!error) added++
+  }
+  const prices = await xPrices(db)
+  const read = (data.data || []).length
+  return { read, added, cost: read * prices.read + users.size * 0.01 }
 }
 
 export async function publishedToday(db: Db): Promise<number> {

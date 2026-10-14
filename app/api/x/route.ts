@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { setSetting, claudeKey } from '@/lib/crosspost'
-import { xAccount, xSettings, xPrices, monthSpend, publishedToday, importLinkedInPosts, generateXParts, faithfulParts, publishXPost } from '@/lib/x'
+import { xAccount, xSettings, xPrices, monthSpend, publishedToday, importLinkedInPosts, generateXParts, faithfulParts, publishXPost, findReplyTargets } from '@/lib/x'
 import { errMsg } from '@/lib/utils'
 
 export const maxDuration = 300
@@ -20,15 +20,16 @@ export async function GET(request: Request) {
     const view = new URL(request.url).searchParams.get('view') || 'draft'
     let q = db.from('x_posts').select('*').limit(60)
     if (view === 'draft') q = q.eq('status', 'draft').order('kind', { ascending: false }).order('reactions', { ascending: false })
-    else if (view === 'approved') q = q.eq('status', 'approved').order('approved_at', { ascending: true })
+    else if (view === 'approved') q = q.eq('status', 'approved').order('scheduled_for', { ascending: true, nullsFirst: false }).order('approved_at', { ascending: true })
     else q = q.in('status', ['published', 'rejected', 'error']).order('updated_at', { ascending: false })
     const { data: posts } = await q
     const [account, settings, prices, spent, today] = await Promise.all([xAccount(db), xSettings(db), xPrices(db), monthSpend(db), publishedToday(db)])
+    const { data: replies } = await db.from('x_reply_targets').select('*').eq('status', 'todo').order('author_followers', { ascending: false }).limit(20)
     const { data: counts } = await db.from('x_posts').select('status')
     const by: Record<string, number> = {}
     for (const c of counts || []) by[c.status as string] = (by[c.status as string] || 0) + 1
     return Response.json({
-      posts: posts || [], account, settings, prices, spent, today, counts: by,
+      posts: posts || [], replies: replies || [], account, settings, prices, spent, today, counts: by,
       env: { client: !!process.env.X_CLIENT_ID && !!process.env.X_CLIENT_SECRET, claude: !!claudeKey() },
     })
   } catch (err) {
@@ -55,6 +56,18 @@ export async function POST(request: Request) {
       }
       await setSetting(db, 'x_settings', JSON.stringify(next))
       return Response.json({ ok: true, settings: next })
+    }
+    if (op === 'find_replies') {
+      const r = await findReplyTargets(db, { count: Number(body.count) || 10 })
+      return Response.json({ ok: true, ...r })
+    }
+    if (op === 'reply_status') {
+      await db.from('x_reply_targets').update({ status: String(body.status || 'done'), updated_at: now }).eq('id', id)
+      return Response.json({ ok: true })
+    }
+    if (op === 'schedule') {
+      await db.from('x_posts').update({ status: 'approved', approved_at: now, scheduled_for: body.at || null, updated_at: now }).eq('id', id)
+      return Response.json({ ok: true })
     }
     if (op === 'disconnect') {
       await setSetting(db, 'x_tokens', '')

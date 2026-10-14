@@ -19,9 +19,12 @@ interface Post {
   error: string | null
   published_at: string | null
   media: { type: 'image' | 'video'; url: string }[] | null
+  scheduled_for: string | null
 }
+interface Reply { id: string; tweet_id: string; author_username: string; author_name: string; author_followers: number; text: string; likes: number; drafts: string[] }
 interface Data {
   posts: Post[]
+  replies: Reply[]
   account: { connected: boolean; username?: string }
   settings: { max_per_day: number; monthly_cap_usd: number; premium: boolean }
   prices: { post: number; post_link: number; read: number }
@@ -51,6 +54,7 @@ export default function XPage() {
   const [err, setErr] = useState('')
   const [edit, setEdit] = useState<Record<string, string[]>>({})
   const [showSettings, setShowSettings] = useState(false)
+  const [replyText, setReplyText] = useState<Record<string, string>>({})
 
   const load = useCallback(async (v = view) => {
     setLoading(true)
@@ -107,6 +111,16 @@ export default function XPage() {
     setMsg(`Publié sur X ✓ (${d.ids.length} post${d.ids.length > 1 ? 's' : ''})`)
     await load()
   })
+  const findReplies = () => run('replies', async () => {
+    const d = await call({ op: 'find_replies', count: 10 })
+    setMsg(`${d.read} posts lus (≈ ${d.cost.toFixed(2)} $) · ${d.added} posts à commenter ajoutés.`)
+    await load()
+  })
+  const replyDone = (r: Reply, status: 'done' | 'skipped') => run(r.id + status, async () => { await call({ op: 'reply_status', id: r.id, status }); await load() })
+  const openReply = (r: Reply) => {
+    const text = replyText[r.id] ?? r.drafts[0] ?? ''
+    window.open(`https://x.com/intent/post?in_reply_to=${r.tweet_id}&text=${encodeURIComponent(text)}`, '_blank', 'noopener')
+  }
   const saveSettings = (patch: Record<string, unknown>) => run('settings', async () => { await call({ op: 'settings', ...patch }); await load(); setMsg('Réglages enregistrés.') })
 
   const s = data?.settings
@@ -163,6 +177,36 @@ export default function XPage() {
           </div>
         )}
 
+        {data && (
+          <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-gray-900">💬 Commentaires à poster ({data.replies.length})</span>
+              <span className="text-[11px] text-gray-400">X interdit les réponses par API : choisis un brouillon, « Répondre sur X » ouvre X pré-rempli, tu cliques Poster.</span>
+              <span className="flex-1" />
+              <button onClick={findReplies} disabled={!!busy || !data.account.connected} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'replies' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔎'} Trouver 10 posts à commenter</button>
+            </div>
+            {data.replies.map((r) => (
+              <div key={r.id} className="border border-gray-100 rounded-lg p-3 grid md:grid-cols-2 gap-3">
+                <div className="text-[13px]">
+                  <div className="text-xs text-gray-500 mb-1"><a href={`https://x.com/${r.author_username}/status/${r.tweet_id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">@{r.author_username}</a> · {r.author_followers.toLocaleString('fr-FR')} abonnés · {r.likes} ♥</div>
+                  <p className="whitespace-pre-wrap text-gray-800 max-h-40 overflow-y-auto">{r.text}</p>
+                </div>
+                <div className="space-y-1.5">
+                  {r.drafts.map((d, i) => (
+                    <button key={i} onClick={() => setReplyText((x) => ({ ...x, [r.id]: d }))} className={`block w-full text-left text-[12px] border rounded px-2 py-1.5 ${(replyText[r.id] ?? r.drafts[0]) === d ? 'border-blue-300 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>{d}</button>
+                  ))}
+                  <textarea value={replyText[r.id] ?? r.drafts[0] ?? ''} onChange={(e) => setReplyText((x) => ({ ...x, [r.id]: e.target.value }))} rows={3} className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-[12px]" />
+                  <div className="flex gap-1.5 text-[11px]">
+                    <button onClick={() => openReply(r)} className="px-2.5 py-1 bg-black text-white rounded hover:bg-gray-800 inline-flex items-center gap-1"><Send className="w-3 h-3" /> Répondre sur X</button>
+                    <button onClick={() => replyDone(r, 'done')} className="px-2 py-1 border border-green-300 text-green-700 rounded hover:bg-green-50 inline-flex items-center gap-1"><Check className="w-3 h-3" /> Fait</button>
+                    <button onClick={() => replyDone(r, 'skipped')} className="px-2 py-1 border border-gray-200 text-gray-500 rounded hover:bg-gray-50 inline-flex items-center gap-1"><XIcon className="w-3 h-3" /> Passer</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 text-xs">
           {([['draft', 'À valider'], ['approved', 'Validés (file)'], ['done', 'Publiés / rejetés']] as const).map(([v, l]) => (
             <button key={v} onClick={() => setView(v)} className={`px-2.5 py-1 rounded-full border ${view === v ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>{l}</button>
@@ -185,6 +229,7 @@ export default function XPage() {
                       <span className="font-semibold text-gray-700">LinkedIn</span>
                       <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${p.kind === 'new' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}`}>{p.kind === 'new' ? 'nouveau' : 'archive'}</span>
                       {p.posted_at && <span>· {formatDistanceToNow(p.posted_at)}</span>}
+                      {p.scheduled_for && p.status === 'approved' && <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">📅 prévu le {new Date(p.scheduled_for).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}</span>}
                       <span>· {p.reactions} réactions · {p.comments} comm.</span>
                       {p.share_url && <a href={p.share_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">ouvrir <ExternalLink className="w-2.5 h-2.5" /></a>}
                     </div>
