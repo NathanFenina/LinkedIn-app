@@ -12,7 +12,7 @@ import { geminiText } from '@/lib/gemini'
 type Db = ReturnType<typeof getServerSupabase>
 
 export const X_REDIRECT_URI = process.env.X_REDIRECT_URI || 'https://linked-in-app-black.vercel.app/api/x/callback'
-const SCOPES = 'tweet.read tweet.write users.read offline.access'
+const SCOPES = 'tweet.read tweet.write users.read offline.access media.write'
 const API = 'https://api.x.com/2'
 
 // Tarifs pay-per-use (réglables : X les a changés deux fois en 2026).
@@ -106,15 +106,51 @@ export function xLength(text: string): number {
 }
 
 // ---- Publication ----
-async function createPost(token: string, text: string, replyTo?: string): Promise<string> {
+async function createPost(token: string, text: string, replyTo?: string, mediaIds: string[] = []): Promise<string> {
   const res = await fetch(`${API}/tweets`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, ...(replyTo ? { reply: { in_reply_to_tweet_id: replyTo } } : {}) }),
+    body: JSON.stringify({ text, ...(replyTo ? { reply: { in_reply_to_tweet_id: replyTo } } : {}), ...(mediaIds.length ? { media: { media_ids: mediaIds } } : {}) }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`X ${res.status} : ${JSON.stringify(data).slice(0, 300)}`)
   return data?.data?.id as string
+}
+
+
+// ---- Médias (images / vidéo du post LinkedIn → X) : upload chunked v2 ----
+export interface XMedia { type: 'image' | 'video'; url: string }
+
+async function uploadMedia(token: string, m: XMedia): Promise<string> {
+  const file = await fetch(m.url)
+  if (!file.ok) throw new Error(`Média LinkedIn inaccessible (${file.status})`)
+  const buf = Buffer.from(await file.arrayBuffer())
+  const mime = file.headers.get('content-type')?.split(';')[0] || (m.type === 'video' ? 'video/mp4' : 'image/jpeg')
+  const auth = { Authorization: `Bearer ${token}` }
+  const init = await fetch(`${API}/media/upload/initialize`, {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ media_type: mime, total_bytes: buf.length, media_category: m.type === 'video' ? 'tweet_video' : 'tweet_image' }),
+  }).then(async (r) => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }))
+  if (!init.ok) throw new Error(`Upload média (init) ${init.status} : ${JSON.stringify(init.body).slice(0, 200)}`)
+  const id = init.body?.data?.id as string
+  const CHUNK = 4 * 1024 * 1024
+  for (let i = 0, seg = 0; i < buf.length; i += CHUNK, seg++) {
+    const form = new FormData()
+    form.append('segment_index', String(seg))
+    form.append('media', new Blob([buf.subarray(i, i + CHUNK)], { type: mime }))
+    const r = await fetch(`${API}/media/upload/${id}/append`, { method: 'POST', headers: auth, body: form })
+    if (!r.ok) throw new Error(`Upload média (append) ${r.status} : ${(await r.text()).slice(0, 200)}`)
+  }
+  const fin = await fetch(`${API}/media/upload/${id}/finalize`, { method: 'POST', headers: auth }).then(async (r) => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }))
+  if (!fin.ok) throw new Error(`Upload média (finalize) ${fin.status} : ${JSON.stringify(fin.body).slice(0, 200)}`)
+  let info = fin.body?.data?.processing_info as { state?: string; check_after_secs?: number } | undefined
+  for (let n = 0; info && info.state !== 'succeeded' && n < 30; n++) {
+    if (info.state === 'failed') throw new Error('Traitement vidéo X échoué')
+    await new Promise((r) => setTimeout(r, Math.min(10, info?.check_after_secs || 3) * 1000))
+    const st = await fetch(`${API}/media/upload?command=STATUS&media_id=${id}`, { headers: auth }).then((r) => r.json()).catch(() => ({}))
+    info = st?.data?.processing_info
+  }
+  return id
 }
 
 export async function monthSpend(db: Db): Promise<number> {
@@ -140,10 +176,16 @@ export async function publishXPost(db: Db, id: string): Promise<{ ids: string[] 
   if (spent + cost > settings.monthly_cap_usd) throw new Error(`Plafond mensuel atteint (${spent.toFixed(2)} $ / ${settings.monthly_cap_usd} $)`)
 
   const token = await accessToken(db)
+  // Médias du post LinkedIn → joints au 1er post (4 images max, ou 1 vidéo).
+  const media = ((row.media as XMedia[]) || [])
+  const video = media.find((m) => m.type === 'video')
+  const toUpload = video ? [video] : media.filter((m) => m.type === 'image').slice(0, 4)
+  const mediaIds: string[] = []
+  for (const m of toUpload) mediaIds.push(await uploadMedia(token, m))
   const ids: string[] = []
   let error: string | null = null
-  for (const p of parts) {
-    try { ids.push(await createPost(token, p, ids[ids.length - 1])) } catch (e) { error = String(e).slice(0, 400); break }
+  for (const [i, p] of parts.entries()) {
+    try { ids.push(await createPost(token, p, ids[ids.length - 1], i === 0 ? mediaIds : [])) } catch (e) { error = String(e).slice(0, 400); break }
   }
   const paid = parts.slice(0, ids.length).reduce((s, p) => s + (/https?:\/\//.test(p) ? prices.post_link : prices.post), 0)
   const now = new Date().toISOString()
@@ -154,6 +196,36 @@ export async function publishXPost(db: Db, id: string): Promise<{ ids: string[] 
   }).eq('id', id)
   if (!ids.length) throw new Error(error || 'Publication échouée')
   return { ids }
+}
+
+
+// ---- Version FIDÈLE (sans IA) : texte d'origine découpé en thread ----
+// Seuls changements : liens retirés (0,20 $ + pénalité), espaces nettoyés.
+// Découpe aux paragraphes, puis aux phrases, puis aux mots si nécessaire.
+export function faithfulParts(source: string, premium: boolean): string[] {
+  const text = source.replace(/https?:\/\/\S+/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  const limit = premium ? 25000 : 270
+  if (xLength(text) <= limit) return [text]
+  const pieces: string[] = []
+  for (const para of text.split(/\n+/)) {
+    if (xLength(para) <= limit) { pieces.push(para); continue }
+    for (const sent of para.split(/(?<=[.!?…])\s+/)) {
+      if (xLength(sent) <= limit) { pieces.push(sent); continue }
+      let cur = ''
+      for (const w of sent.split(/\s+/)) {
+        if (xLength(cur ? cur + ' ' + w : w) > limit) { pieces.push(cur); cur = w } else cur = cur ? cur + ' ' + w : w
+      }
+      if (cur) pieces.push(cur)
+    }
+  }
+  const parts: string[] = []
+  let cur = ''
+  for (const pc of pieces) {
+    const joined = cur ? cur + '\n\n' + pc : pc
+    if (xLength(joined) > limit && cur) { parts.push(cur); cur = pc } else cur = joined
+  }
+  if (cur) parts.push(cur)
+  return parts
 }
 
 // ---- Génération de la version X (Claude) ----
@@ -199,7 +271,20 @@ ${source}
 }
 
 // ---- Import des posts LinkedIn (nouveaux ou archive) ----
-interface LiPost { id: string; share_url: string; text: string; posted_at: string | null; reactions: number; comments: number; is_repost: boolean }
+interface LiPost { id: string; share_url: string; text: string; posted_at: string | null; reactions: number; comments: number; is_repost: boolean; media: XMedia[]; note: string }
+
+function mediaOf(x: Record<string, unknown>): { media: XMedia[]; note: string } {
+  const atts = (x.attachments || []) as Array<Record<string, unknown>>
+  const media: XMedia[] = []
+  const other: string[] = []
+  for (const a of atts) {
+    if (a.unavailable || !a.url) { if (a.type) other.push(String(a.type)); continue }
+    if (a.type === 'img') media.push({ type: 'image', url: String(a.url) })
+    else if (a.type === 'video') media.push({ type: 'video', url: String(a.url) })
+    else other.push(String(a.type))
+  }
+  return { media, note: other.length ? `Pièce jointe non reprise sur X : ${other.join(', ')}` : '' }
+}
 
 async function linkedInPostsPage(accountId: string, me: string, cursor?: string): Promise<{ items: LiPost[]; cursor?: string }> {
   const p = new URLSearchParams({ account_id: accountId, limit: '50' })
@@ -213,11 +298,12 @@ async function linkedInPostsPage(accountId: string, me: string, cursor?: string)
     reactions: Number(x.reaction_counter || 0),
     comments: Number(x.comment_counter || 0),
     is_repost: !!x.is_repost || !!x.repost_id || !!x.repost_content,
+    ...mediaOf(x),
   }))
   return { items, cursor: (data.cursor as string) || undefined }
 }
 
-export async function importLinkedInPosts(db: Db, opts: { archive: boolean; maxPages?: number; generateTop?: number }): Promise<{ scanned: number; added: number; generated: number }> {
+export async function importLinkedInPosts(db: Db, opts: { archive: boolean; days?: number; maxPages?: number; limit?: number; ai?: boolean }): Promise<{ scanned: number; added: number; generated: number }> {
   const accountId = await sourceLinkedInAccount(db)
   if (!accountId) throw new Error('Aucun compte LinkedIn source')
   const me = (await getOwnProfile(accountId)).provider_id || ''
@@ -234,18 +320,22 @@ export async function importLinkedInPosts(db: Db, opts: { archive: boolean; maxP
   const seen = new Set((known || []).map((k) => k.linkedin_post_id as string))
   const fresh = posts.filter((p) => !seen.has(p.id))
   // Archive : les plus engageants d'abord. Nouveaux : 14 derniers jours seulement.
-  const cutoff = Date.now() - 14 * 86400000
-  const selected = opts.archive
-    ? fresh.sort((a, b) => (b.reactions + 3 * b.comments) - (a.reactions + 3 * a.comments))
-    : fresh.filter((p) => !p.posted_at || new Date(p.posted_at).getTime() >= cutoff)
+  // Fenêtre : `days` (archive = meilleurs posts de la période ; nouveaux = 14 j).
+  const cutoff = Date.now() - (opts.days ?? (opts.archive ? 3650 : 14)) * 86400000
+  const inWindow = fresh.filter((p) => !p.posted_at || new Date(p.posted_at).getTime() >= cutoff)
+  const selected = (opts.archive
+    ? inWindow.sort((a, b) => (b.reactions + 3 * b.comments) - (a.reactions + 3 * a.comments))
+    : inWindow).slice(0, opts.limit ?? 30)
   const { premium } = await xSettings(db)
   let added = 0, generated = 0
-  for (const [i, p] of selected.entries()) {
-    let parts: string[] | null = null
-    if (i < (opts.generateTop ?? (opts.archive ? 10 : 10))) { parts = (await generateXParts(p.text, premium)).parts; generated++ }
+  for (const p of selected) {
+    // Par défaut : version FIDÈLE (texte d'origine découpé). IA seulement sur demande.
+    const parts = opts.ai ? (await generateXParts(p.text, premium)).parts : faithfulParts(p.text, premium)
+    if (opts.ai) generated++
     const { error } = await db.from('x_posts').insert({
       linkedin_post_id: p.id, share_url: p.share_url || null, source_text: p.text, posted_at: p.posted_at,
       reactions: p.reactions, comments: p.comments, kind: opts.archive ? 'archive' : 'new', parts, status: 'draft',
+      media: p.media, error: p.note || null,
     })
     if (!error) added++
   }

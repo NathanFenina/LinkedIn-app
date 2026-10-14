@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { setSetting, claudeKey } from '@/lib/crosspost'
-import { xAccount, xSettings, xPrices, monthSpend, publishedToday, importLinkedInPosts, generateXParts, publishXPost } from '@/lib/x'
+import { xAccount, xSettings, xPrices, monthSpend, publishedToday, importLinkedInPosts, generateXParts, faithfulParts, publishXPost } from '@/lib/x'
 import { errMsg } from '@/lib/utils'
 
 export const maxDuration = 300
@@ -8,7 +8,8 @@ export const maxDuration = 300
 // GET ?view=draft|approved|done → posts + état du compte + réglages.
 // POST { op } :
 //   import {archive?:boolean}       → importe les posts LinkedIn (nouveaux ou archive)
-//   generate {id}                   → (re)génère la version X avec Claude
+//   generate {id}                   → reformule avec l'IA (Claude, sinon Gemini)
+//   faithful {id}                   → version fidèle (texte d'origine découpé, sans IA)
 //   update {id, parts:string[]}     → enregistre le texte édité
 //   approve {id} / reject {id} / reset {id}
 //   publish {id}                    → publie tout de suite
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     const db = getServerSupabase()
     const now = new Date().toISOString()
     if (op === 'import') {
-      const r = await importLinkedInPosts(db, { archive: !!body.archive, maxPages: 4 })
+      const r = await importLinkedInPosts(db, { archive: !!body.archive, days: body.days != null ? Number(body.days) : undefined, limit: body.limit != null ? Number(body.limit) : undefined, maxPages: 4 })
       return Response.json({ ok: true, ...r })
     }
     if (op === 'settings') {
@@ -67,6 +68,13 @@ export async function POST(request: Request) {
       const g = await generateXParts(row.source_text as string, (await xSettings(db)).premium)
       await db.from('x_posts').update({ parts: g.parts, updated_at: now }).eq('id', id)
       return Response.json({ ok: true, parts: g.parts, note: g.note })
+    }
+    if (op === 'faithful') {
+      const { data: row } = await db.from('x_posts').select('source_text').eq('id', id).maybeSingle()
+      if (!row) return Response.json({ error: 'introuvable' }, { status: 404 })
+      const parts = faithfulParts(row.source_text as string, (await xSettings(db)).premium)
+      await db.from('x_posts').update({ parts, updated_at: now }).eq('id', id)
+      return Response.json({ ok: true, parts })
     }
     if (op === 'update') {
       const parts = (Array.isArray(body.parts) ? body.parts : []).map((p: unknown) => String(p))

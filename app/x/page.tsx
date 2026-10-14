@@ -18,6 +18,7 @@ interface Post {
   cost_usd: number
   error: string | null
   published_at: string | null
+  media: { type: 'image' | 'video'; url: string }[] | null
 }
 interface Data {
   posts: Post[]
@@ -79,10 +80,14 @@ export default function XPage() {
     try { await fn() } catch (e) { setErr(String(e).replace(/^Error: /, '')) } finally { setBusy(null) }
   }
 
-  const importPosts = (archive: boolean) => run(archive ? 'arch' : 'new', async () => {
-    const d = await call({ op: 'import', archive })
-    setMsg(`${d.scanned} posts LinkedIn lus · ${d.added} ajoutés en brouillon · ${d.generated} versions X générées.`)
+  const importPosts = (archive: boolean, days?: number) => run(archive ? (days ? 'month' : 'arch') : 'new', async () => {
+    const d = await call({ op: 'import', archive, ...(days ? { days, limit: 15 } : {}) })
+    setMsg(`${d.scanned} posts LinkedIn lus · ${d.added} ajoutés en brouillon (texte d’origine, médias repris).`)
     await load()
+  })
+  const faithful = (p: Post) => run(p.id + 'fid', async () => {
+    const d = await call({ op: 'faithful', id: p.id })
+    setEdit((e) => ({ ...e, [p.id]: d.parts }))
   })
   const save = async (p: Post) => { try { await call({ op: 'update', id: p.id, parts: edit[p.id] || [] }) } catch { /* silencieux */ } }
   const generate = (p: Post) => run(p.id + 'gen', async () => {
@@ -123,7 +128,8 @@ export default function XPage() {
             <button onClick={() => setShowSettings((v) => !v)} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" /> Réglages</button>
             <button onClick={() => load()} disabled={loading} className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Rafraîchir</button>
             <button onClick={() => importPosts(false)} disabled={!!busy} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'new' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔎'} Nouveaux posts</button>
-            <button onClick={() => importPosts(true)} disabled={!!busy} className="text-xs px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'arch' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🗂'} Importer l’archive</button>
+            <button onClick={() => importPosts(true, 30)} disabled={!!busy} className="text-xs px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'month' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🏆'} Meilleurs posts du mois</button>
+            <button onClick={() => importPosts(true)} disabled={!!busy} className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5 disabled:opacity-50">{busy === 'arch' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🗂'} Toute l’archive</button>
           </div>
         </div>
       </header>
@@ -166,7 +172,7 @@ export default function XPage() {
         <div className="space-y-4">
           {!data || data.posts.length === 0 ? (
             <div className="bg-white border border-gray-200 rounded-lg text-center py-10 text-gray-400 text-sm">
-              {view === 'draft' ? 'Aucun brouillon. Clique « Nouveaux posts » ou « Importer l’archive ».' : view === 'approved' ? 'Rien en file : valide des brouillons.' : 'Rien de publié pour l’instant.'}
+              {view === 'draft' ? 'Aucun brouillon. Clique « Meilleurs posts du mois » ou « Nouveaux posts ».' : view === 'approved' ? 'Rien en file : valide des brouillons.' : 'Rien de publié pour l’instant.'}
             </div>
           ) : data.posts.map((p) => {
             const parts = edit[p.id] || []
@@ -183,11 +189,20 @@ export default function XPage() {
                       {p.share_url && <a href={p.share_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">ouvrir <ExternalLink className="w-2.5 h-2.5" /></a>}
                     </div>
                     <p className="text-[13px] text-gray-800 whitespace-pre-wrap mt-2 max-h-72 overflow-y-auto">{p.source_text}</p>
+                    {(p.media || []).length > 0 && (
+                      <div className="flex gap-2 mt-2 flex-wrap">
+                        {(p.media || []).map((m, i) => m.type === 'video'
+                          ? <video key={i} src={m.url} className="h-24 rounded border border-gray-200" controls muted />
+                          : <img key={i} src={m.url} alt="" className="h-24 w-24 object-cover rounded border border-gray-200" />)}
+                      </div>
+                    )}
                   </div>
                   <div className="p-4 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium text-gray-900">Version X {parts.length > 1 && <span className="text-xs text-gray-500 font-normal">· thread de {parts.length}</span>}
                       <span className="flex-1" />
-                      {editable && <button onClick={() => generate(p)} disabled={busy === p.id + 'gen'} className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1 disabled:opacity-50">{busy === p.id + 'gen' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} {parts.length ? 'Régénérer' : 'Générer'}</button>}
+                      {(p.media || []).length > 0 && <span className="text-[11px] text-gray-500 font-normal">{(p.media || []).some((m) => m.type === 'video') ? '🎬 vidéo' : `🖼 ${(p.media || []).length} image(s)`} jointe(s) au 1er post</span>}
+                      {editable && <button onClick={() => faithful(p)} disabled={!!busy} title="Texte d’origine découpé, sans reformulation" className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">{busy === p.id + 'fid' ? <RefreshCw className="w-3 h-3 animate-spin inline" /> : '↺'} Version fidèle</button>}
+                      {editable && <button onClick={() => generate(p)} disabled={!!busy} title="Reformulation courte par l’IA" className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1 disabled:opacity-50">{busy === p.id + 'gen' ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Reformuler (IA)</button>}
                     </div>
                     {parts.map((t, i) => {
                       const len = xLength(t)
