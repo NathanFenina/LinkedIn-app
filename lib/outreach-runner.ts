@@ -319,7 +319,15 @@ export async function advanceCampaign(db: Db, campaign: OutreachCampaign): Promi
   // qui a répondu. On purge d'abord toutes les relances "répondu" (statut
   // 'replied'), puis on envoie la 1re relance vraiment légitime. Boucle bornée
   // pour éviter tout emballement.
-  if (campaign.msg2) {
+  // Option « premiers messages d'abord » : tant qu'il reste des 1ers messages à
+  // envoyer, les relances attendent (elles passent quand la file est vide).
+  let msg1Pending = false
+  if ((campaign as { msg1_first?: boolean | null }).msg1_first && (campaign.msg1 || '').trim()) {
+    const { count } = await db.from('outreach_targets').select('id', { count: 'exact', head: true })
+      .eq('campaign_id', campaign.id).eq('status', campaign.invite_first ? 'connected' : 'approved')
+    msg1Pending = (count || 0) > 0
+  }
+  if (campaign.msg2 && !msg1Pending) {
     for (let i = 0; i < 200; i++) {
       const { data: due } = await db
         .from('outreach_targets')
