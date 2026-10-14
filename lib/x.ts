@@ -25,7 +25,8 @@ export async function xPrices(db: Db) {
 export interface XSettings { max_per_day: number; monthly_cap_usd: number; premium: boolean; quotes_per_day: number; mention_replies_per_day: number }
 export async function xSettings(db: Db): Promise<XSettings> {
   const raw = await getSetting(db, 'x_settings')
-  const def: XSettings = { max_per_day: 2, monthly_cap_usd: 20, premium: false, quotes_per_day: 6, mention_replies_per_day: 10 }
+  // quotes_per_day = 0 : X refuse aussi les citations (403 « only quote posts where you are mentioned »), testé le 14/10/2026.
+  const def: XSettings = { max_per_day: 2, monthly_cap_usd: 20, premium: false, quotes_per_day: 0, mention_replies_per_day: 10 }
   try { return { ...def, ...(raw ? JSON.parse(raw) : {}) } } catch { return def }
 }
 
