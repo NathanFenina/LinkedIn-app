@@ -622,3 +622,9 @@ Retourne UNIQUEMENT le texte du message, sans guillemets, sans préfixe.`
   const result = await model.generateContent(prompt)
   return result.response.text().trim().replace(/^["']|["']$/g, '')
 }
+
+// Génération libre (texte brut) — repli quand la clé Claude n'est pas posée.
+export async function geminiText(prompt: string): Promise<string> {
+  const result = await model.generateContent(prompt)
+  return result.response.text()
+}

@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { getServerSupabase } from '@/lib/supabase'
 import { getSetting, setSetting, sourceLinkedInAccount, claudeKey } from '@/lib/crosspost'
 import { getOwnProfile, unipileFetch } from '@/lib/unipile'
+import { geminiText } from '@/lib/gemini'
 
 // X (Twitter) : connexion OAuth 2.0 PKCE, republication des posts LinkedIn
 // (nouveaux + archive), validation manuelle, publication par le cron aux
@@ -161,7 +162,6 @@ const CLAUDE_MODEL = process.env.CROSSPOST_CLAUDE_MODEL || 'claude-sonnet-5'
 export async function generateXParts(source: string, premium: boolean): Promise<{ parts: string[]; note: string }> {
   const key = claudeKey()
   const fallback = [source.replace(/https?:\/\/\S+/g, '').trim().slice(0, premium ? 4000 : 270)]
-  if (!key) return { parts: fallback, note: 'Clé Claude absente : texte d’origine tronqué' }
   const format = premium
     ? `FORMAT : un seul post (compte X Premium, posts longs autorisés), 1 500 caractères maximum, aérés en paragraphes courts.`
     : `FORMAT : si le contenu tient en 280 caractères sans perdre l'essentiel → 1 seul post. Sinon un thread de 3 à 6 posts, CHAQUE post ≤ 260 caractères (emojis comptent double). Le 1er post doit se suffire à lui-même (hook + promesse), les suivants développent, le dernier conclut.`
@@ -176,14 +176,20 @@ POST LINKEDIN :
 ${source}
 """`
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
-    })
-    if (!res.ok) return { parts: fallback, note: `Claude ${res.status} : texte d’origine tronqué` }
-    const data = await res.json()
-    const text: string = (data.content || []).map((c: { text?: string }) => c.text || '').join('')
+    // Claude si la clé est posée sur Vercel, sinon Gemini (déjà utilisé par l'app).
+    let text = ''
+    if (key) {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+      })
+      if (!res.ok) return { parts: fallback, note: `Claude ${res.status} : texte d’origine tronqué` }
+      const data = await res.json()
+      text = (data.content || []).map((c: { text?: string }) => c.text || '').join('')
+    } else {
+      text = await geminiText(prompt)
+    }
     const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as { parts?: string[] }
     const parts = (parsed.parts || []).map((p) => p.replace(/https?:\/\/\S+/g, '').trim()).filter(Boolean)
     return parts.length ? { parts, note: '' } : { parts: fallback, note: 'Réponse vide : texte d’origine tronqué' }
