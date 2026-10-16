@@ -512,6 +512,10 @@ export async function autoReplyMentions(db: Db, max = 5): Promise<{ read: number
   let replied = 0
   for (const [i, m] of items.filter((x) => x.author_id !== tokens.user_id).entries()) {
     if (replied >= left) break
+    // Pas plus d'1 réponse auto par personne et par 24 h (sinon ping-pong qui fait robot).
+    const who = users.get(m.author_id) || ''
+    const { count: recent } = await db.from('x_auto_replies').select('id', { count: 'exact', head: true }).eq('author_username', who).eq('status', 'sent').gte('created_at', new Date(Date.now() - 86400000).toISOString())
+    if ((recent || 0) >= 1) { await db.from('x_auto_replies').insert({ mention_id: m.id, author_username: who, mention_text: m.text, status: 'skipped', error: 'déjà répondu < 24 h' }).then(() => {}, () => {}); continue }
     let reply = ''
     try {
       reply = (await geminiText(`Tu es Nathan Fenina (SEO, GEO, IA, Claude Code). Quelqu'un t'a écrit sur X :
