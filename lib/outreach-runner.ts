@@ -73,7 +73,12 @@ function personalize(tpl: string, name: string | null, company?: string | null, 
   const firstCased = isUpper(firstRaw) && firstRaw.length > 2 ?firstRaw.charAt(0) + firstRaw.slice(1).toLowerCase() : firstRaw
   const first = firstCased.charAt(0).toUpperCase() + firstCased.slice(1)
   // Repli neutre si la boîte est inconnue, au tutoiement ou au vouvoiement selon le message.
-  const ent = (company || '').trim() || (/\bvous\b|\bvotre\b/i.test(tpl || '') ? 'votre entreprise' : 'ta boîte')
+  // Nom d'entreprise douteux (titre de poste, plusieurs boîtes, trop long) → repli neutre.
+  // Ex. « Fondateur HumAIn & ImmoAI & Edlai » ne doit jamais sortir tel quel.
+  const rawCo = (company || '').trim()
+  const badCo = !rawCo || rawCo.length > 30 || /[&|,/•·]| et /i.test(rawCo)
+    || /\b(fondat|founder|co-?found|ceo|cto|coo|cmo|directeur|director|head|responsable|manager|consultant|g[ée]rant|pr[ée]sident|freelance|ind[ée]pendant)/i.test(rawCo)
+  const ent = !badCo ? rawCo : (/\bvous\b|\bvotre\b/i.test(tpl || '') ? 'votre entreprise' : 'ta boîte')
   return (tpl || '')
     .replace(/\{prenom\}/gi, first)
     .replace(/\{nom\}/gi, name || '')
