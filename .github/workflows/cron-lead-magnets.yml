@@ -73,6 +73,6 @@ jobs:
               break
             fi
 
-            # Espacement aléatoire 120-240s (2-4 min) avant le prochain envoi.
-            sleep $(( ( RANDOM % 121 ) + 120 ))
+            # Espacement aléatoire 120-180s (2-3 min) avant le prochain envoi.
+            sleep $(( ( RANDOM % 61 ) + 120 ))
           done
