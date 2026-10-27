@@ -52,6 +52,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const includeConnections = !!body.include_connections
   // Audience séparée pour les CONNEXIONS (1er degré) : campagne « Engageurs — mes connexions ».
   const connCampaignId: string | null = body.connections_campaign_id || null
+  // Commentateurs seulement (plus engagés que les simples réactions) : on saute la phase réactions.
+  const commentsOnly = !!body.comments_only
+  const firstPhase: State['phase'] = commentsOnly ? 'comments' : 'reactions'
   try {
     const db = getServerSupabase()
     const { data: campaign, error } = await db.from('outreach_campaigns').select('*').eq('id', id).single()
@@ -74,7 +77,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
         .slice(0, maxPosts)
         .map((p) => ({ id: String(p.social_id || p.id), topic: topicOf(String(p.text || '')) }))
       if (!posts.length) return Response.json({ ok: true, done: true, reason: `Aucun post ≥ ${minReactions} réactions sur ${days} jours` })
-      state = { posts, postIdx: 0, phase: 'reactions', cursor: null }
+      state = { posts, postIdx: 0, phase: firstPhase, cursor: null }
     }
     if (state.postIdx >= state.posts.length) return Response.json({ ok: true, done: true, reason: 'Tous les posts ont été traités' })
 
@@ -163,7 +166,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     // 5) Position suivante : page suivante, puis commentaires, puis post suivant.
     if (nextCursor && items.length) state.cursor = nextCursor
     else if (state.phase === 'reactions') { state.phase = 'comments'; state.cursor = null }
-    else { state.postIdx++; state.phase = 'reactions'; state.cursor = null }
+    else { state.postIdx++; state.phase = firstPhase; state.cursor = null }
     await db.from('app_settings').upsert({ key, value: JSON.stringify(state) }, { onConflict: 'key' })
     return Response.json({ ok: true, done: state.postIdx >= state.posts.length, post: post.topic, phase: path, ...stats, seo_ajoutes: seoAdded, added })
   } catch (err) {

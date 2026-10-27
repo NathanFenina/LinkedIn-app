@@ -1,6 +1,6 @@
 name: Weekly Post Engagers Sourcing
 # Chaque lundi matin : récupère les personnes qui ont réagi / commenté les posts
-# de Nathan (30+ réactions, 7 derniers jours), garde les décideurs (campagne
+# de Nathan (commentateurs uniquement, tous les posts des 7 derniers jours), garde les décideurs (campagne
 # « Engageurs de mes posts ») et range les profils SEO (campagne « Engageurs SEO »),
 # en excluant clients, prospects, ne plus contacter, conversations actives et
 # personnes à qui l'offre a déjà été proposée. Tout arrive en « à valider » :
@@ -23,7 +23,7 @@ jobs:
           CAMPAIGN: 3a0d8c65-1be9-487d-8b2c-6c81b0ecf95f
           SEO_CAMPAIGN: bd7655c6-bd8f-4b6c-b1be-d5172ad66a07
         run: |
-          base="\"min_reactions\":30,\"days\":7,\"max_posts\":10,\"max_candidates\":30,\"include_connections\":true,\"connections_campaign_id\":\"5ff0c691-4525-4b26-ad62-a07d35cf53a4\",\"seo_campaign_id\":\"$SEO_CAMPAIGN\""
+          base="\"min_reactions\":0,\"days\":7,\"comments_only\":true,\"max_posts\":10,\"max_candidates\":30,\"include_connections\":true,\"connections_campaign_id\":\"5ff0c691-4525-4b26-ad62-a07d35cf53a4\",\"seo_campaign_id\":\"$SEO_CAMPAIGN\""
           added=0; seo=0; first=1
           for i in $(seq 1 60); do
             if [ $first = 1 ]; then d="{$base,\"reset\":true}"; first=0; else d="{$base}"; fi
