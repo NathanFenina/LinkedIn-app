@@ -420,6 +420,27 @@ export async function getReceivedInvitations(
   }
 }
 
+// ---------------------------------------------------------------------------
+// LinkedIn invitations ENVOYÉES : lister + retirer
+//   GET    /users/invite/sent?account_id=...
+//   DELETE /users/invite/sent/{invitation_id}?account_id=...
+// ---------------------------------------------------------------------------
+export async function getSentInvitations(
+  accountId: string,
+  cursor?: string,
+  limit = 100
+): Promise<{ items: Array<Record<string, unknown>>; cursor?: string }> {
+  const params = new URLSearchParams({ account_id: accountId, limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+  const data = await unipileFetch(`/users/invite/sent?${params.toString()}`)
+  return { items: (data.items || []) as Array<Record<string, unknown>>, cursor: (data.cursor as string | undefined) || undefined }
+}
+
+export async function withdrawInvitation(accountId: string, invitationId: string) {
+  const params = new URLSearchParams({ account_id: accountId })
+  return unipileFetch(`/users/invite/sent/${encodeURIComponent(invitationId)}?${params.toString()}`, { method: 'DELETE' })
+}
+
 export async function handleInvitation(
   accountId: string,
   invitationId: string,
