@@ -197,14 +197,23 @@ export async function publishXPost(db: Db, id: string): Promise<{ ids: string[] 
   }
   const ids: string[] = []
   let error: string | null = null
+  let mediaDropped = false
   for (const [i, p] of parts.entries()) {
-    try { ids.push(await createPost(token, p, ids[ids.length - 1], i === 0 ? mediaIds : [])) } catch (e) { error = String(e).slice(0, 400); break }
+    try { ids.push(await createPost(token, p, ids[ids.length - 1], i === 0 ? mediaIds : [])) } catch (e) {
+      // X refuse parfois l'image reprise de LinkedIn (« media IDs are invalid ») :
+      // on publie le texte seul plutôt que de rater le créneau.
+      if (i === 0 && mediaIds.length && /media IDs are invalid/i.test(String(e))) {
+        try { ids.push(await createPost(token, p, undefined, [])); mediaDropped = true; continue } catch (e2) { e = e2 }
+      }
+      error = String(e).slice(0, 400); break
+    }
   }
+  if (mediaDropped && !error) error = 'Publié sans image (image refusée par X)'
   const paid = parts.slice(0, ids.length).reduce((s, p) => s + (/https?:\/\//.test(p) ? prices.post_link : prices.post), 0)
   const now = new Date().toISOString()
   await db.from('x_posts').update({
     status: ids.length ? 'published' : 'error',
-    x_post_ids: ids, cost_usd: paid, error: error && ids.length ? `Thread incomplet (${ids.length}/${parts.length}) : ${error}` : error,
+    x_post_ids: ids, cost_usd: paid, error: error && ids.length && ids.length < parts.length ? `Thread incomplet (${ids.length}/${parts.length}) : ${error}` : error,
     published_at: ids.length ? now : null, updated_at: now,
   }).eq('id', id)
   if (!ids.length) throw new Error(error || 'Publication échouée')
