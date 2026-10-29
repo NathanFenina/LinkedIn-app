@@ -400,8 +400,9 @@ async function sendOne(
           const { count: commentsToday } = await db.from('lead_magnet_sends').select('id', { count: 'exact', head: true })
             .eq('campaign_id', campaign.id).gte('comment_replied_at', parisDayStartISO())
           if ((commentsToday || 0) >= commentCap) break commentsLoop // plafond du jour → campagne suivante
-          // Déjà une réponse sous ce commentaire (souvent Nathan à la main) → on n'ajoute rien.
-          if (((c as { reply_counter?: number }).reply_counter || 0) > 0) { sentSet.add(providerId); continue }
+          // Déjà une réponse sous ce commentaire (souvent Nathan à la main) → on n'ajoute rien,
+          // sauf si la campagne demande de répondre à tout le monde (skip_if_replied = false).
+          if (campaign.skip_if_replied !== false && ((c as { reply_counter?: number }).reply_counter || 0) > 0) { sentSet.add(providerId); continue }
           const cchk = await checkLimit(db, ACCOUNT_ID, 'comment')
           if (!cchk.allowed) return { sent: 0, reason: cchk.reason || 'Plafond commentaires atteint' }
           const text = await personalize(pickVariant(campaign.comment_reply || campaign.message_template).text, n.commenter_name, campaign.magnet_url)
