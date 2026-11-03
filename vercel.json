@@ -28,10 +28,6 @@
     {
       "path": "/api/cron/x-publish",
       "schedule": "30 7 * * *"
-    },
-    {
-      "path": "/api/cron/plug-publish",
-      "schedule": "*/30 6-20 * * *"
     }
   ]
 }
