@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Share2, AtSign } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Share2, AtSign, Inbox, Library } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -20,6 +20,8 @@ type Item = NavItem & { secondary?: boolean }
 
 const NAV: Item[] = [
   // — Primaire : 8 onglets, 3 groupes clairs —
+  { href: '/plug', label: 'À valider', icon: Inbox, group: 'PILOTER' },
+  { href: '/plug/messages', label: 'Messages (A/B)', icon: Library, group: 'PILOTER' },
   { href: '/cockpit', label: 'Cockpit', icon: Gauge, group: 'PILOTER' },
   { href: '/outreach', label: 'Séquenceur', icon: Send, group: 'PROSPECTER' },
   { href: '/lead-magnets', label: 'Lead magnets', icon: Magnet, group: 'PROSPECTER' },
@@ -48,7 +50,7 @@ export function Sidebar() {
   const [showMore, setShowMore] = useState(false)
 
   const linkClass = (href: string) => {
-    const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
+    const active = href === '/' || href === '/plug' ? pathname === href : pathname.startsWith(href)
     return cn(
       'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
       active ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'
@@ -63,8 +65,8 @@ export function Sidebar() {
             <LinkIcon className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="font-bold text-gray-900 text-sm leading-none">LinkedIn CRM</h1>
-            <p className="text-[10px] text-gray-400 mt-0.5">Setting B2B</p>
+            <h1 className="font-bold text-gray-900 text-sm leading-none">PLUG</h1>
+            <p className="text-[10px] text-gray-400 mt-0.5">Prospection & distribution</p>
           </div>
         </div>
         <AccountSwitcher />

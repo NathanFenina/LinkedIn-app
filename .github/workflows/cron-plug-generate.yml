@@ -1,0 +1,30 @@
+name: PLUG Generate
+# Remplit la page « À valider » de PLUG (rien n'est envoyé) :
+#   lundi, mardi et jeudi vers 6h30 Paris → engageurs (question ChatGPT + concurrents),
+#   invitations acceptées, relances / réponses à traiter, posts X, missions,
+#   posts LinkedIn à commenter. Les routines Claude envoient ensuite la notification.
+on:
+  schedule:
+    - cron: '30 5 * * 1,2,4'
+  workflow_dispatch:
+concurrency:
+  group: plug-generate
+  cancel-in-progress: false
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Generate actions
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          call() { echo "== $1"; curl -s -m 300 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-generate?part=$1" || true; echo; sleep 5; }
+          call accepted
+          call engagers
+          call engagers
+          call convs
+          call x
+          call missions
+          call comments

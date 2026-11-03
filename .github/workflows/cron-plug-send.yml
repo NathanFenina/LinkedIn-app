@@ -1,0 +1,29 @@
+name: PLUG Send Queue
+# Envoie les actions validées dans PLUG (bouton « Envoyer »), UNE par appel,
+# espacées de 2 à 4 min. Tourne toutes les 15 min en journée (lun-ven,
+# ~8h-19h Paris) et s'arrête dès que la file est vide. Rien d'autre n'est envoyé.
+on:
+  schedule:
+    - cron: '*/15 7-18 * * 1-5'
+  workflow_dispatch:
+concurrency:
+  group: plug-send
+  cancel-in-progress: false
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Drain queue
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in $(seq 1 15); do
+            r=$(curl -s -m 70 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-send" || echo '{"error":"curl"}')
+            echo "[$i $(date -u +%H:%M)] $r"
+            rem=$(echo "$r" | grep -o '"remaining":[0-9]*' | grep -o '[0-9]*$' || true)
+            if [ "${rem:-0}" = "0" ] && ! echo "$r" | grep -q '"wait":true'; then echo "File vide."; break; fi
+            if echo "$r" | grep -q '"wait":true'; then sleep $(( ( RANDOM % 61 ) + 60 )); continue; fi
+            sleep $(( ( RANDOM % 121 ) + 120 ))
+          done

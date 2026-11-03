@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LinkedIn CRM",
-  description: "Gestion des conversations LinkedIn",
+  title: "PLUG",
+  description: "Prospection et distribution — Décupler",
 };
 
 export default function RootLayout({
