@@ -146,6 +146,7 @@ async function researchEngager(name: string, headline: string, post: string): Pr
   const prompt = `Tu aides Nathan Fenina, consultant et agence SEO/GEO, à préparer un message LinkedIn.
 Personne : ${name} — titre LinkedIn : « ${headline} » — elle a commenté son post « ${post} ».
 1. Est-elle dans la cible ? Cible : ${ICP}
+   Juge UNIQUEMENT sur son titre et son entreprise : avoir commenté un post de Nathan sur le SEO ou l'IA ne fait PAS d'elle un consultant SEO.
 2. Si oui : trouve son entreprise actuelle et le site officiel (recherche Google).
 3. Formule UNE question en français qu'un client potentiel de cette entreprise poserait à ChatGPT pour trouver ce type d'offre (ex. « quel logiciel de PPM pour une DSI ? »).
 4. Fais la recherche et relève les 2 à 4 marques qui ressortent en premier. Indique si la marque de la personne en fait partie.
@@ -181,7 +182,10 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
     }
     const brands = (r.brands || []).filter(Boolean)
     const marque = r.company || t.company || 'votre marque'
-    const concurrents = brands.filter((b) => !marque || !b.toLowerCase().includes(marque.toLowerCase())).slice(0, 2).join(' et ') || 'vos concurrents'
+    const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9à-ÿ ]/g, ' ').replace(/\b(france|sas|group|groupe|software|consulting)\b/g, ' ').replace(/\s+/g, ' ').trim()
+    const own = norm(marque)
+    const isOwn = (b: string) => { const nb = norm(b); return !!own && !!nb && (nb.includes(own) || own.includes(nb)) }
+    const concurrents = brands.filter((b) => !isOwn(b)).slice(0, 2).join(' et ') || 'vos concurrents'
     const vars = { prenom: firstName(t.name), question: r.question || '', concurrents, marque }
     const firstDegree = !!t.connected_at
     const message = fill(r.brand_cited ? tplM : tplC, vars)
