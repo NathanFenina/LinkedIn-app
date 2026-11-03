@@ -6,11 +6,14 @@
 //   x          → posts X à commenter
 //   missions   → posts LinkedIn de missions freelance
 //   comments   → posts LinkedIn à commenter (visibilité)
+//   fb         → posts de groupes Facebook BTP qui expriment un besoin (Apify, lecture seule)
+//   stats      → statistiques des posts publiés via PLUG Publish
 // Rien n'est envoyé ici. Auth: header "Authorization: Bearer ${CRON_SECRET}".
 
 import { getServerSupabase } from '@/lib/supabase'
 import { generateConversations, generateEngagers, generateLinkedInPosts, generateXReplies, promoteAcceptedInvites } from '@/lib/plug'
 import { findReplyTargets } from '@/lib/x'
+import { generateFbGroups, refreshStats } from '@/lib/plug-publish'
 
 export const maxDuration = 300
 
@@ -32,6 +35,8 @@ export async function POST(request: Request) {
       }
       case 'missions': return Response.json({ part, added: await generateLinkedInPosts(db, 'missions') })
       case 'comments': return Response.json({ part, added: await generateLinkedInPosts(db, 'comments') })
+      case 'fb': return Response.json({ part, ...(await generateFbGroups(db)) })
+      case 'stats': return Response.json({ part, refreshed: await refreshStats(db) })
       default: return Response.json({ error: 'part inconnue' }, { status: 400 })
     }
   } catch (err) {

@@ -23,6 +23,7 @@ const TYPES: Array<{ key: string; label: string; hint: string }> = [
   { key: 'mission', label: '💼 Missions', hint: 'Posts / offres pour postuler (Ouvrir puis Fait)' },
   { key: 'lk_comment', label: '📝 Posts LinkedIn à commenter', hint: 'Commentaire proposé à copier (Ouvrir puis Fait)' },
   { key: 'x_reply', label: '🐦 Posts X à commenter', hint: '« Répondre » ouvre X avec le texte prérempli' },
+  { key: 'fb_group', label: '🏗️ Groupes Facebook BTP', hint: 'Besoin repéré dans un groupe : commente (texte proposé) et ajoute la personne en ami à la main' },
 ]
 const SENDABLE = ['engager_dm', 'engager_invite', 'relance', 'reply']
 const TAGS = ['🔥 Chaud', 'RDV', 'Pas maintenant', 'Client', 'Partenaire', 'Pas intéressé']
@@ -154,7 +155,7 @@ export default function PlugPage() {
                       </button>
                     )}
                     {a.type === 'x_reply' && <a href={xIntent(a)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black text-white text-xs"><ExternalLink className="w-3.5 h-3.5" />Répondre</a>}
-                    {(a.type === 'mission' || a.type === 'lk_comment') && a.url && <a href={a.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs"><ExternalLink className="w-3.5 h-3.5" />Ouvrir</a>}
+                    {(a.type === 'mission' || a.type === 'lk_comment' || a.type === 'fb_group') && a.url && <a href={a.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs"><ExternalLink className="w-3.5 h-3.5" />Ouvrir</a>}
                     {!sendable && <button disabled={busy === a.id} onClick={() => act(a, 'done')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs"><Check className="w-3.5 h-3.5" />Fait</button>}
                     {drafts[a.id] !== undefined && <button disabled={busy === a.id} onClick={() => act(a, 'save')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs"><Tag className="w-3.5 h-3.5" />Enregistrer</button>}
                     {view === 'todo' && <button disabled={busy === a.id} onClick={() => act(a, 'later')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs"><Clock className="w-3.5 h-3.5" />Plus tard</button>}

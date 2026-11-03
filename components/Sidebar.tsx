@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Share2, AtSign, Inbox, Library } from 'lucide-react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Share2, AtSign, Inbox, Library, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -21,6 +21,7 @@ type Item = NavItem & { secondary?: boolean }
 const NAV: Item[] = [
   // — Primaire : 8 onglets, 3 groupes clairs —
   { href: '/plug', label: 'À valider', icon: Inbox, group: 'PILOTER' },
+  { href: '/plug/calendar', label: 'Calendrier', icon: CalendarDays, group: 'PILOTER' },
   { href: '/plug/messages', label: 'Messages (A/B)', icon: Library, group: 'PILOTER' },
   { href: '/cockpit', label: 'Cockpit', icon: Gauge, group: 'PILOTER' },
   { href: '/outreach', label: 'Séquenceur', icon: Send, group: 'PROSPECTER' },

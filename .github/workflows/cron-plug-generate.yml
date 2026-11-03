@@ -2,7 +2,8 @@ name: PLUG Generate
 # Remplit la page « À valider » de PLUG (rien n'est envoyé) :
 #   lundi, mardi et jeudi vers 6h30 Paris → engageurs (question ChatGPT + concurrents),
 #   invitations acceptées, relances / réponses à traiter, posts X, missions,
-#   posts LinkedIn à commenter. Les routines Claude envoient ensuite la notification.
+#   posts LinkedIn à commenter, besoins repérés dans les groupes Facebook BTP,
+#   stats des posts publiés via PLUG. Les routines Claude envoient ensuite la notification.
 on:
   schedule:
     - cron: '30 5 * * 1,2,4'
@@ -28,3 +29,5 @@ jobs:
           call x
           call missions
           call comments
+          call fb
+          call stats

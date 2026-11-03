@@ -21,6 +21,7 @@ export type ActionType =
   | 'lk_comment' // post LinkedIn à commenter (à la main)
   | 'x_reply' // post X à commenter (lien d'intention)
   | 'mission' // mission freelance pour postuler (à la main)
+  | 'fb_group' // post d'un groupe Facebook BTP (commenter / ajouter à la main)
 
 // Types envoyés par PLUG (les autres = « Ouvrir » puis « Fait »).
 export const SENDABLE: ActionType[] = ['engager_dm', 'engager_invite', 'relance', 'reply']
