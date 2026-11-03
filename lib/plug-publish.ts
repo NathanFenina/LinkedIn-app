@@ -16,7 +16,7 @@ import { geminiCall, parseJson, upsertAction } from './plug'
 // ---------------------------------------------------------------------------
 
 type Db = ReturnType<typeof getServerSupabase>
-export const NETWORKS = ['linkedin', 'x', 'instagram', 'facebook', 'youtube', 'tiktok'] as const
+export const NETWORKS = ['linkedin', 'x', 'instagram', 'facebook', 'youtube', 'tiktok', 'substack'] as const
 type Media = { url: string; type?: string }
 type Result = { status: 'published' | 'queued' | 'manual' | 'error'; id?: string | null; url?: string | null; error?: string }
 
@@ -48,7 +48,19 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
           }).select('id').single()
           if (error) throw error
           results.x = { status: 'queued', id: xp.id }
+        } else if (net === 'facebook' && (await getSetting(db, 'fb_page_token'))) {
+          // Page Facebook via l'API Graph officielle (jeton de page fourni par Nathan).
+          const pageId = await getSetting(db, 'fb_page_id')
+          const token = await getSetting(db, 'fb_page_token')
+          const endpoint = images.length ? `${pageId}/photos` : `${pageId}/feed`
+          const params = new URLSearchParams({ access_token: token, ...(images.length ? { url: images[0], caption: p.body } : { message: p.body }) })
+          const r = await fetch(`https://graph.facebook.com/v21.0/${endpoint}`, { method: 'POST', body: params })
+          const j = await r.json()
+          if (!r.ok || j.error) throw new Error(`Facebook : ${JSON.stringify(j.error || j).slice(0, 200)}`)
+          results.facebook = { status: 'published', id: j.post_id || j.id || null }
         } else {
+          // YouTube (posts écrits/images), TikTok et Substack : pas d'API de publication
+          // utilisable pour l'instant → texte prêt, à publier à la main.
           results[net] = { status: 'manual' }
         }
       } catch (err) {

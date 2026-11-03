@@ -16,8 +16,56 @@ interface XPost { id: string; source_text: string; status: string; scheduled_for
 
 const NETS: Array<{ key: string; label: string; auto: boolean }> = [
   { key: 'linkedin', label: 'LinkedIn', auto: true }, { key: 'x', label: 'X', auto: true }, { key: 'instagram', label: 'Instagram', auto: true },
-  { key: 'facebook', label: 'Facebook', auto: false }, { key: 'youtube', label: 'YouTube', auto: false }, { key: 'tiktok', label: 'TikTok', auto: false },
+  { key: 'facebook', label: 'Facebook (page)', auto: true }, { key: 'youtube', label: 'YouTube', auto: false }, { key: 'tiktok', label: 'TikTok', auto: false },
+  { key: 'substack', label: 'Substack', auto: false },
 ]
+interface Net { accounts: Array<{ id: string; type: string; name?: string }>; settings: { instagram_account_id: string; fb_page_id: string; fb_token_set: boolean } }
+
+function Networks() {
+  const [net, setNet] = useState<Net | null>(null)
+  const [fb, setFb] = useState({ id: '', token: '' })
+  const [msg, setMsg] = useState('')
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let alive = true
+    fetch('/api/plug/networks').then((x) => x.json()).then((r) => { if (alive && !r.error) setNet(r) })
+    return () => { alive = false }
+  }, [tick])
+  async function post(body: Record<string, string>) {
+    const r = await fetch('/api/plug/networks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((x) => x.json())
+    if (r.url) window.open(r.url, '_blank')
+    setMsg(r.error || (r.url ? 'Connexion ouverte dans un nouvel onglet' : 'Enregistré'))
+    setTick((t) => t + 1)
+  }
+  if (!net) return null
+  const ig = net.accounts.filter((a) => /instagram/i.test(a.type))
+  return (
+    <details className="bg-white border border-gray-200 rounded-xl p-4 mb-6 text-sm">
+      <summary className="font-semibold cursor-pointer">Réseaux connectés</summary>
+      <div className="mt-3 space-y-3">
+        <div>Comptes : {net.accounts.map((a) => `${a.type} (${a.name || a.id})`).join(' · ') || 'aucun'}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">Instagram :</span>
+          {ig.length ? (
+            <select value={net.settings.instagram_account_id} onChange={(e) => post({ op: 'settings', instagram_account_id: e.target.value })} className="border rounded-lg px-2 py-1 text-xs">
+              <option value="">Choisir…</option>
+              {ig.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
+            </select>
+          ) : <span className="text-xs text-gray-500">pas encore connecté</span>}
+          <button onClick={() => post({ op: 'connect', provider: 'INSTAGRAM' })} className="px-2.5 py-1 rounded-lg border text-xs">Connecter Instagram</button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">Page Facebook :</span>
+          <input value={fb.id} onChange={(e) => setFb({ ...fb, id: e.target.value })} placeholder={net.settings.fb_page_id || 'ID de la page'} className="border rounded-lg px-2 py-1 text-xs" />
+          <input value={fb.token} onChange={(e) => setFb({ ...fb, token: e.target.value })} placeholder={net.settings.fb_token_set ? 'jeton enregistré ✔' : 'jeton de page'} className="border rounded-lg px-2 py-1 text-xs flex-1 min-w-40" />
+          <button onClick={() => post({ op: 'settings', fb_page_id: fb.id || net.settings.fb_page_id, fb_page_token: fb.token })} className="px-2.5 py-1 rounded-lg border text-xs">Enregistrer</button>
+        </div>
+        <div className="text-xs text-gray-500">YouTube (posts écrits ou image), TikTok et Substack n’ont pas d’API de publication utilisable : le post est marqué « à la main » avec le texte prêt.</div>
+        {msg && <div className="text-xs text-gray-600">{msg}</div>}
+      </div>
+    </details>
+  )
+}
 const EMPTY = { id: '', title: '', body: '', networks: ['linkedin'], date: '', media: '', lm_url: '', lm_reply: '' }
 
 function dayKey(iso: string) { return new Date(iso).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) }
@@ -76,6 +124,7 @@ export default function PlugCalendarPage() {
     <div className="max-w-4xl mx-auto p-4 sm:p-6">
       <h1 className="text-xl font-bold text-gray-900">Calendrier</h1>
       <p className="text-xs text-gray-500 mb-4">Un post, plusieurs réseaux, une date. Les posts de Second Brain arrivent ici en brouillon.</p>
+      <Networks />
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6 space-y-2">
         <div className="font-semibold text-sm">{form.id ? 'Modifier le post' : 'Nouveau post'}</div>
