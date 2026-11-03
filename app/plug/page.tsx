@@ -26,7 +26,7 @@ const TYPES: Array<{ key: string; label: string; hint: string }> = [
   { key: 'fb_group', label: '🏗️ Groupes Facebook BTP', hint: 'Besoin repéré dans un groupe : commente (texte proposé) et ajoute la personne en ami à la main' },
 ]
 const SENDABLE = ['engager_dm', 'engager_invite', 'relance', 'reply']
-const TAGS = ['🔥 Chaud', 'RDV', 'Pas maintenant', 'Client', 'Partenaire', 'Pas intéressé']
+const TAGS = ['Message envoyé', 'En attente de réponse', 'Discussion en cours', 'À relancer', '🔥 Chaud', 'RDV', 'Client', 'Partenaire', 'Pas maintenant', 'Pas intéressé', 'Ignoré']
 const VIEWS: Array<{ key: string; label: string }> = [
   { key: 'todo', label: 'À valider' }, { key: 'queued', label: 'En file d’envoi' }, { key: 'later', label: 'Plus tard' },
   { key: 'history', label: 'Envoyés / faits' }, { key: 'dismissed', label: 'Supprimés' },
@@ -65,6 +65,7 @@ export default function PlugPage() {
     }).then((x) => x.json())
     setBusy(null)
     if (r.error) return setErr(r.error)
+    if (op === 'send') setErr(r.sent ? `✔ Envoyé à ${a.person_name || ''}` : r.skipped ? `Pas envoyé : ${r.skipped}` : 'En file : il partira dans quelques minutes (écart minimal entre deux envois).')
     if (op === 'save' || op === 'tag' || op === 'note') return reload()
     setActions((xs) => xs.filter((x) => x.id !== a.id))
     reload()

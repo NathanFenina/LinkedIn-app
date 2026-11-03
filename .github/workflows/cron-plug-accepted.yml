@@ -1,0 +1,24 @@
+name: PLUG Accepted Invites
+# Chaque jour ouvré vers 10h Paris : les invitations PLUG acceptées (engageurs
+# 2e degré) repassent dans « À valider » avec le message personnalisé prêt,
+# et les réponses reçues / relances sont mises à jour. Rien n'est envoyé.
+on:
+  schedule:
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch:
+concurrency:
+  group: plug-generate
+  cancel-in-progress: false
+jobs:
+  accepted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Promote accepted invites + conversations
+        env:
+          APP_URL: https://linked-in-app-black.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for part in accepted convs; do
+            echo "== $part"; curl -s -m 300 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-generate?part=$part" || true; echo
+          done

@@ -93,12 +93,25 @@ export async function upsertAction(db: Db, a: Record<string, unknown> & { type: 
 
 // ---------------- Envoi (UNE action par appel) ----------------
 
-export async function sendNextQueued(db: Db): Promise<{ sent: number; wait?: boolean; remaining: number; name?: string; error?: string }> {
+export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: number; wait?: boolean; remaining: number; name?: string; error?: string; skipped?: string }> {
   const { count: remaining } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).eq('status', 'queued')
   if (!remaining) return { sent: 0, remaining: 0 }
   if ((await secondsSinceLastSend(db)) < MIN_GAP_SEC) return { sent: 0, wait: true, remaining }
-  const { data: a } = await db.from('plug_actions').select('*').eq('status', 'queued').order('updated_at', { ascending: true }).limit(1).maybeSingle()
-  if (!a) return { sent: 0, remaining: 0 }
+  let q = db.from('plug_actions').select('*').eq('status', 'queued')
+  if (onlyId) q = q.eq('id', onlyId)
+  const { data: a } = await q.order('updated_at', { ascending: true }).limit(1).maybeSingle()
+  if (!a) return { sent: 0, remaining }
+  // Garde-fou : si Nathan a déjà écrit à la main dans cette conversation ces
+  // dernières heures, on n'envoie pas un second message.
+  if (a.chat_id && a.type !== 'engager_invite') {
+    try {
+      const last = ((await getChatMessages(a.chat_id, 3)) as Msg[]).sort((x, y) => String(y.timestamp).localeCompare(String(x.timestamp)))[0]
+      if (last && isMine(last) && Date.now() - Date.parse(String(last.timestamp)) < 6 * 3600000 && Date.parse(String(last.timestamp)) > Date.parse(a.created_at)) {
+        await db.from('plug_actions').update({ status: 'done', tag: 'Message envoyé', note: 'Déjà envoyé à la main : pas de doublon', updated_at: new Date().toISOString() }).eq('id', a.id)
+        return { sent: 0, remaining: remaining - 1, skipped: 'déjà envoyé à la main' }
+      }
+    } catch { /* lecture impossible : on envoie quand même */ }
+  }
   const acc = await getActiveAccountId()
   const now = new Date().toISOString()
   try {
@@ -123,7 +136,7 @@ export async function sendNextQueued(db: Db): Promise<{ sent: number; wait?: boo
       await db.from('plug_actions').update({ chat_id: chatId }).eq('id', a.id)
       if (a.target_id) await db.from('outreach_targets').update({ status: 'msg1_sent', last_sent_at: now, chat_id: chatId, variant: null }).eq('id', a.target_id)
     }
-    await db.from('plug_actions').update({ status: 'sent', sent_at: now, error: null, updated_at: now }).eq('id', a.id)
+    await db.from('plug_actions').update({ status: 'sent', sent_at: now, error: null, tag: a.tag || (a.type === 'engager_invite' ? 'Invitation envoyée' : 'Message envoyé'), updated_at: now }).eq('id', a.id)
     return { sent: 1, remaining: remaining - 1, name: a.person_name || undefined }
   } catch (err) {
     await db.from('plug_actions').update({ status: 'error', error: String(err).slice(0, 300), updated_at: now }).eq('id', a.id)
@@ -220,7 +233,7 @@ export async function promoteAcceptedInvites(db: Db, limit = 10): Promise<number
       const first = p.is_relationship === true || /FIRST|DISTANCE_1/i.test(p.network_distance || '')
       if (!first) continue
       const later = String((a.meta as Record<string, unknown>)?.later_message || '')
-      await upsertAction(db, { ...stripId(a), type: 'engager_dm', status: 'todo', dedupe_key: `engager-dm:${a.target_id || a.provider_id}`, message: later, template_key: (a.meta as Record<string, unknown>)?.brand_cited ? 'B_marque_citee' : 'B_concurrent', sent_at: null })
+      await upsertAction(db, { ...stripId(a), type: 'engager_dm', status: 'todo', title: '✅ Invitation acceptée — message prêt', tag: null, dedupe_key: `engager-dm:${a.target_id || a.provider_id}`, message: later, template_key: (a.meta as Record<string, unknown>)?.brand_cited ? 'B_marque_citee' : 'B_concurrent', sent_at: null })
       await db.from('plug_actions').update({ status: 'done', updated_at: new Date().toISOString() }).eq('id', a.id)
       n++
     } catch { /* profil illisible : on réessaiera */ }
@@ -410,5 +423,6 @@ export async function summary(db: Db) {
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString()
   const { count: sentWeek } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).eq('status', 'sent').gte('sent_at', weekAgo)
   const { count: repliesWeek } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).gte('replied_at', weekAgo)
-  return { todo, total_todo: Object.values(todo).reduce((s, v) => s + v, 0), queued, sent_week: sentWeek || 0, replies_week: repliesWeek || 0 }
+  const { count: accepted } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).eq('status', 'todo').like('dedupe_key', 'engager-dm:%')
+  return { todo, total_todo: Object.values(todo).reduce((s, v) => s + v, 0), queued, sent_week: sentWeek || 0, replies_week: repliesWeek || 0, invitations_acceptees_a_traiter: accepted || 0 }
 }

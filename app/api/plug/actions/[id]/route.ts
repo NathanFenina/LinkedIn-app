@@ -1,6 +1,6 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { errMsg } from '@/lib/utils'
-import { SENDABLE, type ActionType } from '@/lib/plug'
+import { SENDABLE, sendNextQueued, type ActionType } from '@/lib/plug'
 
 // Actions de Nathan sur une carte PLUG.
 // body { op: 'send' | 'save' | 'later' | 'dismiss' | 'done' | 'reopen' | 'tag' | 'note', message?, tag?, note? }
@@ -35,6 +35,12 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     }
     const { error } = await db.from('plug_actions').update(patch).eq('id', id)
     if (error) throw error
+    // Envoi immédiat si l'écart minimal est respecté ; sinon il reste en file
+    // et part au prochain passage (toutes les 15 min en journée).
+    if (body.op === 'send') {
+      const r = await sendNextQueued(db, id)
+      return Response.json({ ok: true, sent: r.sent === 1, queued: r.sent !== 1 && !r.error && !r.skipped, skipped: r.skipped, error: r.error })
+    }
     return Response.json({ ok: true })
   } catch (err) {
     return Response.json({ error: errMsg(err) }, { status: 500 })
