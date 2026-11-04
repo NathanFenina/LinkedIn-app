@@ -28,7 +28,7 @@ jobs:
     steps:
       - name: Run lead-magnets session
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           CAMPAIGN_ID: ${{ github.event.inputs.campaign_id }}
         run: |

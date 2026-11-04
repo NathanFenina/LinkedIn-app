@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Promote accepted invites + conversations
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           for part in accepted convs; do

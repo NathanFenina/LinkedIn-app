@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Source engagers
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CAMPAIGN: 3a0d8c65-1be9-487d-8b2c-6c81b0ecf95f
           SEO_CAMPAIGN: bd7655c6-bd8f-4b6c-b1be-d5172ad66a07
         run: |

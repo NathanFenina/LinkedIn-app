@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Run comments session (15h00 → 18h Paris)
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           url="$APP_URL/api/cron/lead-magnets?mode=comments"

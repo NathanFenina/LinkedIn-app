@@ -6,11 +6,13 @@ import { geminiCall, parseJson, upsertAction } from './plug'
 
 // ---------------------------------------------------------------------------
 // PLUG Publish : un post (venu de Second Brain ou créé dans PLUG) planifié sur
-// plusieurs réseaux. Au moment prévu :
-//   linkedin  → Unipile (compte LinkedIn)
-//   instagram → Unipile (compte Instagram choisi dans Cross-post, image obligatoire)
-//   x         → file X existante (x_posts validé, publié par le cron X)
-//   facebook / youtube / tiktok → marqués « à publier à la main » (API non branchée)
+// plusieurs réseaux. Au moment prévu, chaque réseau reçoit sa variante de texte
+// (variants[réseau], sinon le texte LinkedIn) et le média adapté :
+//   linkedin  → Unipile (compte LinkedIn) : texte + images, ou une vidéo
+//   instagram → Unipile (compte Instagram choisi dans Cross-post) : image(s) ou vidéo obligatoire
+//   x         → file X existante (x_posts validé, publié par le cron X, images ou vidéo)
+//   facebook  → page Facebook via l'API Graph (texte, photo ou vidéo) si le jeton de page est enregistré
+//   youtube / tiktok / substack → marqués « à publier à la main » (texte prêt, vidéo téléchargeable)
 // Option lead_magnet { url, reply } : après publication LinkedIn, crée la campagne
 // « commentaire seul » qui répond aux commentateurs avec la ressource.
 // ---------------------------------------------------------------------------
@@ -26,23 +28,26 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
   for (const p of due || []) {
     const results: Record<string, Result> = { ...((p.results as Record<string, Result>) || {}) }
     const images = ((p.media as Media[]) || []).filter((m) => !m.type || m.type === 'image').map((m) => m.url)
+    const video = ((p.media as Media[]) || []).find((m) => m.type === 'video')
+    const variants = (p.variants as Record<string, string>) || {}
     for (const net of (p.networks as string[]) || []) {
       if (results[net]?.status === 'published' || results[net]?.status === 'queued') continue
+      const text = variants[net]?.trim() || p.body
       try {
         if (net === 'linkedin') {
           const acc = await sourceLinkedInAccount(db)
-          const r = await createPost(acc, p.body, images.slice(0, 9))
+          const r = await createPost(acc, text, video ? [video] : images.slice(0, 9))
           results.linkedin = { status: 'published', id: r.post_id, url: r.post_id ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.post_id}/` : null }
         } else if (net === 'instagram') {
           const ig = await getSetting(db, 'crosspost_instagram_account_id')
-          if (!ig) throw new Error('Aucun compte Instagram choisi (page Cross-post)')
-          if (!images.length) throw new Error('Instagram exige au moins une image')
-          const r = await createPost(ig, p.body, images.slice(0, 10))
+          if (!ig) throw new Error('Aucun compte Instagram choisi (page Calendrier → Réseaux connectés)')
+          if (!images.length && !video) throw new Error('Instagram exige une image ou une vidéo')
+          const r = await createPost(ig, text, video ? [video] : images.slice(0, 10))
           results.instagram = { status: 'published', id: r.post_id }
         } else if (net === 'x') {
           const { premium } = await xSettings(db)
           const { data: xp, error } = await db.from('x_posts').insert({
-            source_text: p.body, parts: faithfulParts(p.body, premium), status: 'approved', kind: 'plug',
+            source_text: text, parts: faithfulParts(text, premium), status: 'approved', kind: 'plug',
             scheduled_for: new Date().toISOString(), approved_at: new Date().toISOString(),
             media: ((p.media as Media[]) || []).map((m) => ({ url: m.url, type: m.type || 'image' })),
           }).select('id').single()
@@ -52,9 +57,11 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
           // Page Facebook via l'API Graph officielle (jeton de page fourni par Nathan).
           const pageId = await getSetting(db, 'fb_page_id')
           const token = await getSetting(db, 'fb_page_token')
-          const endpoint = images.length ? `${pageId}/photos` : `${pageId}/feed`
-          const params = new URLSearchParams({ access_token: token, ...(images.length ? { url: images[0], caption: p.body } : { message: p.body }) })
-          const r = await fetch(`https://graph.facebook.com/v21.0/${endpoint}`, { method: 'POST', body: params })
+          const host = video ? 'graph-video.facebook.com' : 'graph.facebook.com'
+          const endpoint = video ? `${pageId}/videos` : images.length ? `${pageId}/photos` : `${pageId}/feed`
+          const fields: Record<string, string> = video ? { file_url: video.url, description: text } : images.length ? { url: images[0], caption: text } : { message: text }
+          const params = new URLSearchParams({ access_token: token, ...fields })
+          const r = await fetch(`https://${host}/v21.0/${endpoint}`, { method: 'POST', body: params })
           const j = await r.json()
           if (!r.ok || j.error) throw new Error(`Facebook : ${JSON.stringify(j.error || j).slice(0, 200)}`)
           results.facebook = { status: 'published', id: j.post_id || j.id || null }

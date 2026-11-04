@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Generate actions
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           call() { echo "== $1"; curl -s -m 300 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-generate?part=$1" || true; echo; sleep 5; }

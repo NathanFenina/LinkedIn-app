@@ -1,0 +1,24 @@
+name: PLUG Veille
+# Récupère chaque matin (lun-ven, ~6h Paris) les derniers posts des créateurs suivis
+# (page Veille de PLUG) et fait expliquer par Gemini pourquoi les meilleurs marchent.
+# Lecture seule : rien n'est publié ni envoyé.
+on:
+  schedule:
+    - cron: '10 5 * * 1-5'
+  workflow_dispatch:
+concurrency:
+  group: plug-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch watched creators
+        env:
+          APP_URL: https://plug-decupler.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in 1 2 3; do
+            echo "== passe $i"; curl -s -m 300 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-watch?max=4" || true; echo; sleep 20
+          done

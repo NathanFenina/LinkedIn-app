@@ -668,17 +668,20 @@ export async function getUserPostsFull(accountId: string, identifier: string, li
 
 // Création d'un post (LinkedIn ou Instagram) : multipart, images téléchargées
 // depuis leurs URLs puis jointes en "attachments".
-export async function createPost(accountId: string, text: string, imageUrls: string[] = []): Promise<{ post_id: string | null }> {
+// media : URLs d'images, ou { url, type: 'video' } pour une vidéo (une seule vidéo par post).
+export async function createPost(accountId: string, text: string, media: Array<string | { url: string; type?: string }> = []): Promise<{ post_id: string | null }> {
   const form = new FormData()
   form.append('account_id', accountId)
   form.append('text', text)
   let i = 0
-  for (const url of imageUrls) {
+  for (const m of media) {
+    const url = typeof m === 'string' ? m : m.url
+    const isVideo = typeof m !== 'string' && m.type === 'video'
     const r = await fetch(url)
-    if (!r.ok) throw new Error(`Image inaccessible (${r.status})`)
+    if (!r.ok) throw new Error(`${isVideo ? 'Vidéo' : 'Image'} inaccessible (${r.status})`)
     const blob = await r.blob()
-    const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')
-    form.append('attachments', blob, `image-${++i}.${ext}`)
+    const ext = isVideo ? 'mp4' : (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')
+    form.append('attachments', blob, `${isVideo ? 'video' : 'image'}-${++i}.${ext}`)
   }
   const res = await fetch(`${BASE_URL}/posts`, { method: 'POST', headers: { 'X-API-KEY': API_KEY }, body: form })
   if (!res.ok) throw new Error(`Unipile API error ${res.status}: ${await res.text()}`)

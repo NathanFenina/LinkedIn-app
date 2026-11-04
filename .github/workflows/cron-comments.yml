@@ -25,7 +25,7 @@ jobs:
         # de brouillons non validés, on poste seulement ce qui est déjà là.
         if: ${{ github.event.inputs.post_only != 'true' }}
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           echo "Génération des brouillons du jour (auto_generate)…"
@@ -34,7 +34,7 @@ jobs:
 
       - name: Run commenting session
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           for i in $(seq 1 60); do

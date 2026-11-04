@@ -1,0 +1,71 @@
+import { getServerSupabase } from './supabase'
+import { geminiCall, parseJson } from './plug'
+
+// ---------------------------------------------------------------------------
+// PLUG Distribution : un post n'a pas le même format partout.
+//   format   : texte | image | carrousel | video
+//   statuts  : idee → script → a_tourner → monte → draft → scheduled → published (ou error)
+//   réseaux  : suggérés selon le format (une vidéo va en Reel/Short, un texte en thread…)
+//   variants : un texte adapté par réseau, généré depuis le texte LinkedIn validé, puis relu
+// ---------------------------------------------------------------------------
+
+type Db = ReturnType<typeof getServerSupabase>
+
+export const FORMATS = ['texte', 'image', 'carrousel', 'video'] as const
+export type Format = (typeof FORMATS)[number]
+
+export const STATUSES = [
+  { key: 'idee', label: 'Idée' },
+  { key: 'script', label: 'Script' },
+  { key: 'a_tourner', label: 'À tourner' },
+  { key: 'monte', label: 'Monté' },
+  { key: 'draft', label: 'Brouillon' },
+  { key: 'scheduled', label: 'Planifié' },
+  { key: 'published', label: 'Publié' },
+  { key: 'error', label: 'Erreur' },
+] as const
+export const STATUS_KEYS = STATUSES.map((s) => s.key) as string[]
+
+// Réseaux conseillés par format. Instagram et TikTok ne prennent pas de texte seul.
+export const NETWORKS_BY_FORMAT: Record<Format, string[]> = {
+  video: ['linkedin', 'instagram', 'facebook', 'youtube', 'tiktok', 'x'],
+  image: ['linkedin', 'instagram', 'facebook', 'x'],
+  carrousel: ['linkedin', 'instagram', 'facebook'],
+  texte: ['linkedin', 'x', 'facebook', 'substack'],
+}
+
+// Règles d'adaptation données à Gemini, réseau par réseau.
+const RULES: Record<string, string> = {
+  x: "X : même fond, phrases courtes. Le texte sera découpé en thread automatiquement. Remplace un CTA « commente … » par « Réponds « MOT » et je te l'envoie ».",
+  instagram: "Instagram (légende de Reel ou d'image) : 3 à 8 lignes maximum, l'accroche d'abord, CTA « Écris-moi « MOT » en message privé », puis 5 hashtags pertinents en français à la fin.",
+  facebook: "Facebook (page) : même texte que LinkedIn, ton un peu plus conversationnel, CTA « Écris-moi « MOT » en message privé » à la place d'un « commente ».",
+  youtube: "YouTube (Short) : première ligne = titre de 100 caractères maximum, sans emoji en début ; ligne vide ; description de 2 à 4 phrases ; 3 hashtags dont #shorts.",
+  tiktok: 'TikTok : légende de 150 caractères maximum, accroche + 3 hashtags.',
+  substack: 'Substack (Note) : 300 caractères maximum, une idée forte, pas de hashtag.',
+}
+
+export function suggestNetworks(format: string, hasImage: boolean): string[] {
+  const nets = NETWORKS_BY_FORMAT[(FORMATS as readonly string[]).includes(format) ? (format as Format) : 'texte']
+  return format === 'texte' && hasImage ? [...nets, 'instagram'] : nets
+}
+
+// Génère les variantes pour les réseaux du post (LinkedIn garde le texte d'origine).
+export async function generateVariants(db: Db, id: string): Promise<Record<string, string>> {
+  const { data: p, error } = await db.from('plug_posts').select('body, format, networks, variants').eq('id', id).single()
+  if (error || !p) throw new Error('Post introuvable')
+  const targets = ((p.networks as string[]) || []).filter((n) => n !== 'linkedin' && RULES[n])
+  if (!targets.length) return (p.variants as Record<string, string>) || {}
+  const raw = await geminiCall(`Tu adaptes un post LinkedIn de Nathan Fenina (agence SEO/GEO Décupler) pour d'autres réseaux.
+Format du post : ${p.format}. Garde sa voix : tutoiement, phrases courtes, zéro jargon corporate, aucun chiffre inventé ni ajouté.
+Règles par réseau :
+${targets.map((n) => `- ${RULES[n]}`).join('\n')}
+Réponds UNIQUEMENT en JSON : {${targets.map((n) => `"${n}":"..."`).join(',')}}
+Post LinkedIn :
+${p.body}`)
+  const out = parseJson<Record<string, string>>(raw)
+  if (!out) throw new Error('Réponse Gemini illisible')
+  const variants = { ...((p.variants as Record<string, string>) || {}) }
+  for (const n of targets) if (typeof out[n] === 'string' && out[n].trim()) variants[n] = out[n].trim()
+  await db.from('plug_posts').update({ variants, updated_at: new Date().toISOString() }).eq('id', id)
+  return variants
+}

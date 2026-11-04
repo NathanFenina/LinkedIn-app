@@ -14,6 +14,6 @@ jobs:
     steps:
       - name: Detect replies
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
         run: |
           curl -fsSL -X POST "$APP_URL/api/outreach/detect-replies" -H "Content-Type: application/json"

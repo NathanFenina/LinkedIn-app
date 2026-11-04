@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Run auto-accept session (15h00 → 18h Paris)
         env:
-          APP_URL: https://linked-in-app-black.vercel.app
+          APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           start=$(TZ=Europe/Paris date -d 'today 15:00' +%s)
