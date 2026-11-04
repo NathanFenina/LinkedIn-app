@@ -155,6 +155,27 @@ export default function PlugCalendarPage() {
       variants: p.variants || {} })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+  async function upload(files: FileList | null) {
+    if (!files?.length) return
+    setBusy(true)
+    const urls: string[] = []
+    let kind = ''
+    for (const f of Array.from(files)) {
+      setMsg(`Import de ${f.name}…`)
+      const r = await fetch('/api/plug/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name, type: f.type }) }).then((x) => x.json())
+      if (r.error) { setMsg(r.error); setBusy(false); return }
+      const up = await fetch(r.upload_url, { method: 'PUT', headers: { 'Content-Type': f.type }, body: f })
+      if (!up.ok) { setMsg(`Échec de l'import (${up.status})`); setBusy(false); return }
+      urls.push(r.url); kind = r.kind
+    }
+    setBusy(false)
+    const media = [form.media, ...urls].filter(Boolean).join(' ')
+    const next = { ...form, media }
+    if (kind === 'video' && form.format !== 'video') Object.assign(next, { format: 'video', networks: NETWORKS_BY_FORMAT.video })
+    if (kind === 'image' && form.format === 'texte') Object.assign(next, { format: 'image', networks: NETWORKS_BY_FORMAT.image })
+    setForm(next)
+    setMsg(`${urls.length} fichier(s) importé(s) ✔`)
+  }
   function setFormat(f: string) {
     setForm({ ...form, format: f, networks: NETWORKS_BY_FORMAT[f] || form.networks })
   }
@@ -245,7 +266,21 @@ export default function PlugCalendarPage() {
             </label>
           ))}
         </div>
-        <input value={form.media} onChange={(e) => setForm({ ...form, media: e.target.value })} placeholder={isVideo ? 'URL de la vidéo (.mp4)' : "URL d'images (séparées par un espace) — obligatoire pour Instagram"} className="w-full text-sm border rounded-lg px-2 py-1.5" />
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={`px-3 py-1.5 rounded-lg border text-xs cursor-pointer bg-gray-50 ${busy ? 'opacity-40 pointer-events-none' : ''}`}>
+            📎 Importer image(s) ou vidéo
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime" multiple className="hidden" onChange={(e) => { upload(e.target.files); e.target.value = '' }} />
+          </label>
+          <input value={form.media} onChange={(e) => setForm({ ...form, media: e.target.value })} placeholder={isVideo ? 'ou URL de la vidéo (.mp4)' : "ou URL d'images (séparées par un espace) — obligatoire pour Instagram"} className="flex-1 min-w-60 text-sm border rounded-lg px-2 py-1.5" />
+        </div>
+        {form.media && (
+          <div className="flex flex-wrap gap-2">
+            {form.media.split(/\s+/).filter(Boolean).map((u) => /\.(mp4|mov)(\?|$)/i.test(u)
+              ? <video key={u} src={u} className="h-24 rounded border" muted />
+              // eslint-disable-next-line @next/next/no-img-element
+              : <img key={u} src={u} alt="" className="h-24 rounded border object-cover" />)}
+          </div>
+        )}
         {otherNets.length > 0 && (
           <details className="border rounded-lg p-2" open={Object.keys(form.variants).length > 0}>
             <summary className="text-sm font-medium cursor-pointer">Variantes par réseau ({Object.keys(form.variants).filter((k) => otherNets.includes(k)).length}/{otherNets.length})</summary>
