@@ -18,7 +18,7 @@ interface XPost { id: string; source_text: string; status: string; scheduled_for
 
 const NETS: Array<{ key: string; label: string; auto: boolean }> = [
   { key: 'linkedin', label: 'LinkedIn', auto: true }, { key: 'x', label: 'X', auto: true }, { key: 'instagram', label: 'Instagram', auto: true },
-  { key: 'facebook', label: 'Facebook (page)', auto: true }, { key: 'youtube', label: 'YouTube', auto: false }, { key: 'tiktok', label: 'TikTok', auto: false },
+  { key: 'facebook', label: 'Facebook (page)', auto: true }, { key: 'youtube', label: 'YouTube', auto: true }, { key: 'tiktok', label: 'TikTok', auto: false },
   { key: 'substack', label: 'Substack', auto: false },
 ]
 const FORMATS = [
@@ -39,7 +39,7 @@ const NETWORKS_BY_FORMAT: Record<string, string[]> = {
 const st = (k: string) => STATUSES.find((s) => s.key === k) || { key: k, label: k, cls: 'bg-gray-100 text-gray-700' }
 const fmt = (k: string) => FORMATS.find((f) => f.key === k)?.label.split(' ')[0] || '📝'
 
-interface Net { accounts: Array<{ id: string; type: string; name?: string }>; settings: { instagram_account_id: string; fb_page_id: string; fb_token_set: boolean } }
+interface Net { accounts: Array<{ id: string; type: string; name?: string }>; settings: { instagram_account_id: string; fb_page_id: string; fb_token_set: boolean; youtube_channel: string | null; youtube_ready: boolean } }
 
 function Networks() {
   const [net, setNet] = useState<Net | null>(null)
@@ -80,7 +80,14 @@ function Networks() {
           <input value={fb.token} onChange={(e) => setFb({ ...fb, token: e.target.value })} placeholder={net.settings.fb_token_set ? 'jeton enregistré ✔' : 'jeton de page'} className="border rounded-lg px-2 py-1 text-xs flex-1 min-w-40" />
           <button onClick={() => post({ op: 'settings', fb_page_id: fb.id || net.settings.fb_page_id, fb_page_token: fb.token })} className="px-2.5 py-1 rounded-lg border text-xs">Enregistrer</button>
         </div>
-        <div className="text-xs text-gray-500">YouTube (posts écrits ou image), TikTok et Substack n’ont pas d’API de publication utilisable : le post est marqué « à la main » avec le texte prêt.</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">YouTube (Shorts) :</span>
+          {net.settings.youtube_channel ? <span className="text-xs text-green-700">connecté ✔ {net.settings.youtube_channel}</span> : <span className="text-xs text-gray-500">pas encore connecté</span>}
+          {net.settings.youtube_ready
+            ? <a href="/api/youtube/connect" className="px-2.5 py-1 rounded-lg border text-xs">{net.settings.youtube_channel ? 'Reconnecter' : 'Connecter YouTube'}</a>
+            : <span className="text-xs text-amber-700">ajoute YOUTUBE_CLIENT_ID et YOUTUBE_CLIENT_SECRET dans Vercel</span>}
+        </div>
+        <div className="text-xs text-gray-500">YouTube : seules les vidéos partent en automatique (Short ; en privé tant que le projet Google n’est pas audité). Posts écrits YouTube, TikTok et Substack : marqués « à la main » avec le texte prêt.</div>
         {msg && <div className="text-xs text-gray-600">{msg}</div>}
       </div>
     </details>

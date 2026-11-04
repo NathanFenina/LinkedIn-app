@@ -5,10 +5,10 @@ import type { NextRequest } from 'next/server'
 // peut lire le CRM et publier ou envoyer des messages via l'API.
 // - Navigateur : mot de passe (authentification HTTP Basic, identifiant libre), variable APP_PASSWORD.
 // - Machines (GitHub Actions, Second Brain) : "Authorization: Bearer ${CRON_SECRET}" ou ?token=CRON_SECRET.
-// - Ouverts : callbacks et webhooks appelés par X et Unipile, et les routes cron/admin qui vérifient déjà CRON_SECRET.
+// - Ouverts : callbacks et webhooks appelés par X, Google (YouTube) et Unipile, et les routes cron/admin qui vérifient déjà CRON_SECRET.
 // Tant que APP_PASSWORD n'est pas défini dans Vercel, rien n'est bloqué (pas de verrouillage par surprise).
 
-const OUVERTS = [/^\/api\/cron\//, /^\/api\/admin\//, /^\/api\/webhooks\//, /^\/api\/x\/callback/]
+const OUVERTS = [/^\/api\/cron\//, /^\/api\/admin\//, /^\/api\/webhooks\//, /^\/api\/x\/callback/, /^\/api\/youtube\/callback/]
 
 export function proxy(request: NextRequest) {
   const password = process.env.APP_PASSWORD

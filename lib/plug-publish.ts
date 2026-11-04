@@ -3,6 +3,7 @@ import { createPost, getPost } from './unipile'
 import { getSetting, sourceLinkedInAccount } from './crosspost'
 import { faithfulParts, xSettings } from './x'
 import { geminiCall, parseJson, upsertAction } from './plug'
+import { uploadShort, youtubeChannel } from './youtube'
 
 // ---------------------------------------------------------------------------
 // PLUG Publish : un post (venu de Second Brain ou créé dans PLUG) planifié sur
@@ -12,7 +13,8 @@ import { geminiCall, parseJson, upsertAction } from './plug'
 //   instagram → Unipile (compte Instagram choisi dans Cross-post) : image(s) ou vidéo obligatoire
 //   x         → file X existante (x_posts validé, publié par le cron X, images ou vidéo)
 //   facebook  → page Facebook via l'API Graph (texte, photo ou vidéo) si le jeton de page est enregistré
-//   youtube / tiktok / substack → marqués « à publier à la main » (texte prêt, vidéo téléchargeable)
+//   youtube   → Short envoyé via l'API YouTube Data si la chaîne est connectée et que le post a une vidéo
+//   tiktok / substack (et YouTube sans vidéo) → marqués « à publier à la main » (texte prêt)
 // Option lead_magnet { url, reply } : après publication LinkedIn, crée la campagne
 // « commentaire seul » qui répond aux commentateurs avec la ressource.
 // ---------------------------------------------------------------------------
@@ -65,6 +67,10 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
           const j = await r.json()
           if (!r.ok || j.error) throw new Error(`Facebook : ${JSON.stringify(j.error || j).slice(0, 200)}`)
           results.facebook = { status: 'published', id: j.post_id || j.id || null }
+        } else if (net === 'youtube' && video && (await youtubeChannel(db))) {
+          // Short YouTube : 1re ligne de la variante = titre, le reste = description.
+          const r = await uploadShort(db, video.url, variants.youtube?.trim() || `${(p.title || '').replace(/^#\d+\s*·\s*/, '').split('·')[0].trim()}\n${p.body}`)
+          results.youtube = { status: 'published', id: r.id, url: r.url }
         } else {
           // YouTube (posts écrits/images), TikTok et Substack : pas d'API de publication
           // utilisable pour l'instant → texte prêt, à publier à la main.

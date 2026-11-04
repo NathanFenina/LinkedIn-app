@@ -1,18 +1,19 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { getSetting, setSetting, listUnipileAccounts } from '@/lib/crosspost'
 import { errMsg } from '@/lib/utils'
+import { youtubeChannel } from '@/lib/youtube'
 
 // Réseaux de PLUG Publish.
-// GET  : comptes Unipile connectés + réglages (Instagram choisi, page Facebook).
+// GET  : comptes Unipile connectés + réglages (Instagram choisi, page Facebook, chaîne YouTube).
 // POST { op: 'connect', provider: 'INSTAGRAM' } → lien Unipile pour connecter le compte.
 // POST { op: 'settings', instagram_account_id?, fb_page_id?, fb_page_token? }
 export async function GET() {
   try {
     const db = getServerSupabase()
-    const [accounts, ig, fbPage, fbToken] = await Promise.all([
-      listUnipileAccounts(), getSetting(db, 'crosspost_instagram_account_id'), getSetting(db, 'fb_page_id'), getSetting(db, 'fb_page_token'),
+    const [accounts, ig, fbPage, fbToken, yt] = await Promise.all([
+      listUnipileAccounts(), getSetting(db, 'crosspost_instagram_account_id'), getSetting(db, 'fb_page_id'), getSetting(db, 'fb_page_token'), youtubeChannel(db),
     ])
-    return Response.json({ accounts, settings: { instagram_account_id: ig, fb_page_id: fbPage, fb_token_set: !!fbToken } })
+    return Response.json({ accounts, settings: { instagram_account_id: ig, fb_page_id: fbPage, fb_token_set: !!fbToken, youtube_channel: yt, youtube_ready: !!process.env.YOUTUBE_CLIENT_ID } })
   } catch (err) {
     return Response.json({ error: errMsg(err) }, { status: 500 })
   }
