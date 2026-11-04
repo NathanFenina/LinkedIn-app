@@ -56,7 +56,7 @@ export async function generateVariants(db: Db, id: string): Promise<Record<strin
   const targets = ((p.networks as string[]) || []).filter((n) => n !== 'linkedin' && RULES[n])
   if (!targets.length) return (p.variants as Record<string, string>) || {}
   const raw = await geminiCall(`Tu adaptes un post LinkedIn de Nathan Fenina (agence SEO/GEO Décupler) pour d'autres réseaux.
-Format du post : ${p.format}. Garde sa voix : tutoiement, phrases courtes, zéro jargon corporate, aucun chiffre inventé ni ajouté.
+Format du post : ${p.format}. Change le MOINS possible : même voix, même personne grammaticale (si le post dit « tu », garde « tu »), même structure, mêmes phrases quand elles conviennent déjà au réseau. Tu adaptes seulement la longueur, l'accroche si besoin et l'appel à l'action. Tutoiement, phrases courtes, zéro jargon corporate, aucun chiffre inventé ni ajouté.
 Règles par réseau :
 ${targets.map((n) => `- ${RULES[n]}`).join('\n')}
 Réponds UNIQUEMENT en JSON : {${targets.map((n) => `"${n}":"..."`).join(',')}}
