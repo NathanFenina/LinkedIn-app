@@ -1,7 +1,7 @@
 import { getServerSupabase } from './supabase'
 import { createPost, getPost } from './unipile'
 import { getSetting, sourceLinkedInAccount } from './crosspost'
-import { faithfulParts, xSettings } from './x'
+import { faithfulParts, publishXPost, xSettings } from './x'
 import { geminiCall, parseJson, upsertAction } from './plug'
 import { uploadShort, youtubeChannel } from './youtube'
 
@@ -11,7 +11,7 @@ import { uploadShort, youtubeChannel } from './youtube'
 // (variants[réseau], sinon le texte LinkedIn) et le média adapté :
 //   linkedin  → Unipile (compte LinkedIn) : texte + images, ou une vidéo
 //   instagram → Unipile (compte Instagram choisi dans Cross-post) : image(s) ou vidéo obligatoire
-//   x         → file X existante (x_posts validé, publié par le cron X, images ou vidéo)
+//   x         → publié tout de suite via la file X (x_posts) ; si ça échoue, le cron X le reprend
 //   facebook  → page Facebook via l'API Graph (texte, photo ou vidéo) si le jeton de page est enregistré
 //   youtube   → Short envoyé via l'API YouTube Data si la chaîne est connectée et que le post a une vidéo
 //   tiktok / substack (et YouTube sans vidéo) → marqués « à publier à la main » (texte prêt)
@@ -54,7 +54,14 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
             media: ((p.media as Media[]) || []).map((m) => ({ url: m.url, type: m.type || 'image' })),
           }).select('id').single()
           if (error) throw error
-          results.x = { status: 'queued', id: xp.id }
+          // Publication immédiate, en même temps que les autres réseaux. En cas d'échec, le post reste
+          // validé dans la file X et le cron X le reprendra au prochain créneau.
+          try {
+            const { ids } = await publishXPost(db, xp.id)
+            results.x = { status: 'published', id: ids[0] || xp.id, url: ids[0] ? `https://x.com/i/status/${ids[0]}` : null }
+          } catch (e) {
+            results.x = { status: 'queued', id: xp.id, error: `Publication X différée : ${String(e).slice(0, 200)}` }
+          }
         } else if (net === 'facebook' && (await getSetting(db, 'fb_page_token'))) {
           // Page Facebook via l'API Graph officielle (jeton de page fourni par Nathan).
           const pageId = await getSetting(db, 'fb_page_id')
