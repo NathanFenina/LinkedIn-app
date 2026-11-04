@@ -20,6 +20,13 @@ import { uploadShort, youtubeChannel } from './youtube'
 // ---------------------------------------------------------------------------
 
 type Db = ReturnType<typeof getServerSupabase>
+
+// LinkedIn écrase les lignes vides envoyées par l'API : le post arrive en bloc compact.
+// On met un caractère blanc invisible (U+2800) sur chaque ligne vide pour garder l'aération
+// du texte tel qu'il est écrit, et on ne garde qu'une ligne vide entre deux paragraphes.
+export function keepBlankLines(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().replace(/\n\n/g, '\n\u2800\n')
+}
 export const NETWORKS = ['linkedin', 'x', 'instagram', 'facebook', 'youtube', 'tiktok', 'substack'] as const
 type Media = { url: string; type?: string }
 type Result = { status: 'published' | 'queued' | 'manual' | 'error'; id?: string | null; url?: string | null; error?: string }
@@ -38,7 +45,7 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
       try {
         if (net === 'linkedin') {
           const acc = await sourceLinkedInAccount(db)
-          const r = await createPost(acc, text, video ? [video] : images.slice(0, 9))
+          const r = await createPost(acc, keepBlankLines(text), video ? [video] : images.slice(0, 9))
           results.linkedin = { status: 'published', id: r.post_id, url: r.post_id ? `https://www.linkedin.com/feed/update/urn:li:activity:${r.post_id}/` : null }
         } else if (net === 'instagram') {
           const ig = await getSetting(db, 'crosspost_instagram_account_id')
