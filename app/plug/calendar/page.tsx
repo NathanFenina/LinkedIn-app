@@ -18,7 +18,7 @@ interface XPost { id: string; source_text: string; status: string; scheduled_for
 
 const NETS: Array<{ key: string; label: string; auto: boolean }> = [
   { key: 'linkedin', label: 'LinkedIn', auto: true }, { key: 'x', label: 'X', auto: true }, { key: 'instagram', label: 'Instagram', auto: true },
-  { key: 'facebook', label: 'Facebook (page)', auto: true }, { key: 'youtube', label: 'YouTube', auto: true }, { key: 'tiktok', label: 'TikTok', auto: false },
+  { key: 'facebook', label: 'Facebook (page)', auto: true }, { key: 'facebook_profil', label: 'Facebook (profil)', auto: false }, { key: 'youtube', label: 'YouTube', auto: true }, { key: 'tiktok', label: 'TikTok', auto: false },
   { key: 'substack', label: 'Substack', auto: false },
 ]
 const FORMATS = [

@@ -14,20 +14,21 @@ import { uploadShort, youtubeChannel } from './youtube'
 //   x         → publié tout de suite via la file X (x_posts) ; si ça échoue, le cron X le reprend
 //   facebook  → page Facebook via l'API Graph (texte, photo ou vidéo) si le jeton de page est enregistré
 //   youtube   → Short envoyé via l'API YouTube Data si la chaîne est connectée et que le post a une vidéo
-//   tiktok / substack (et YouTube sans vidéo) → marqués « à publier à la main » (texte prêt)
+//   facebook_profil / tiktok / substack (et YouTube sans vidéo) → marqués « à publier à la main » (texte prêt) :
+//   Meta n'autorise plus la publication sur un profil personnel par API depuis 2018.
 // Option lead_magnet { url, reply } : après publication LinkedIn, crée la campagne
 // « commentaire seul » qui répond aux commentateurs avec la ressource.
 // ---------------------------------------------------------------------------
 
 type Db = ReturnType<typeof getServerSupabase>
 
-// LinkedIn écrase les lignes vides envoyées par l'API : le post arrive en bloc compact.
+// LinkedIn et Instagram écrasent les lignes vides envoyées par l'API : le post arrive en bloc compact.
 // On met un caractère blanc invisible (U+2800) sur chaque ligne vide pour garder l'aération
 // du texte tel qu'il est écrit, et on ne garde qu'une ligne vide entre deux paragraphes.
 export function keepBlankLines(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().replace(/\n\n/g, '\n\u2800\n')
 }
-export const NETWORKS = ['linkedin', 'x', 'instagram', 'facebook', 'youtube', 'tiktok', 'substack'] as const
+export const NETWORKS = ['linkedin', 'x', 'instagram', 'facebook', 'facebook_profil', 'youtube', 'tiktok', 'substack'] as const
 type Media = { url: string; type?: string }
 type Result = { status: 'published' | 'queued' | 'manual' | 'error'; id?: string | null; url?: string | null; error?: string }
 
@@ -51,7 +52,7 @@ export async function publishDue(db: Db): Promise<{ published: number; errors: n
           const ig = await getSetting(db, 'crosspost_instagram_account_id')
           if (!ig) throw new Error('Aucun compte Instagram choisi (page Calendrier → Réseaux connectés)')
           if (!images.length && !video) throw new Error('Instagram exige une image ou une vidéo')
-          const r = await createPost(ig, text, video ? [video] : images.slice(0, 10))
+          const r = await createPost(ig, keepBlankLines(text), video ? [video] : images.slice(0, 10))
           results.instagram = { status: 'published', id: r.post_id }
         } else if (net === 'x') {
           const { premium } = await xSettings(db)

@@ -39,11 +39,13 @@ const RULES: Record<string, string> = {
   x: "X : même texte, resserré si possible. Le découpage en thread est automatique : ne numérote pas, n'écris pas « thread », pas de hashtag.",
   instagram: "Instagram (légende) : 2 200 caractères maximum. Garde le texte et sa structure, raccourcis seulement si nécessaire (l'accroche en premier), puis 5 hashtags pertinents en français à la fin.",
   facebook: "Facebook (page) : même texte que LinkedIn, ton un peu plus conversationnel si besoin.",
+  facebook_profil: "Facebook (profil perso de Nathan) : même texte que LinkedIn, ton plus personnel si besoin.",
   youtube: "YouTube : première ligne = titre de 100 caractères maximum, sans emoji en début ; ligne vide ; description de 2 à 4 phrases ; 3 hashtags.",
   tiktok: 'TikTok : légende de 150 caractères maximum, accroche + 3 hashtags.',
   substack: 'Substack (Note) : 300 caractères maximum, l\'idée la plus forte du post, avec sa voix, pas de hashtag.',
 }
 // Appel à l'action : seulement s'il existe déjà dans le post (jamais inventé).
+const FORMAT = "Mise en forme : une ligne vide entre chaque paragraphe, aucune ligne vide entre les puces d'une liste (→, -, ☐), jamais de markdown (pas de **, de # ni de liens entre crochets), emojis seulement s'il y en a dans l'original."
 const CTA = "Appel à l'action : uniquement si le post d'origine en a un. Un « commente … » (qui ne marche que sur LinkedIn) devient « Réponds « MOT » » sur X et « Écris-moi « MOT » en message privé » sur Instagram et Facebook. Sinon, n'en ajoute AUCUN et ne promets rien (ressource, pistes, guide) que le texte ne contient pas."
 
 export function suggestNetworks(format: string, hasImage: boolean): string[] {
@@ -61,6 +63,7 @@ export async function generateVariants(db: Db, id: string): Promise<Record<strin
 Format du post : ${p.format}. Change le MOINS possible : même voix, même personne grammaticale (si le post dit « tu », garde « tu »), même structure, mêmes phrases quand elles conviennent déjà au réseau. Tu adaptes seulement la longueur et l'appel à l'action. N'ajoute JAMAIS de morale, de conclusion ni d'appel à l'action si le post d'origine n'en a pas : la chute reste la dernière phrase. Tutoiement, phrases courtes, zéro jargon corporate, aucun chiffre inventé ni ajouté.
 Règles par réseau :
 ${targets.map((n) => `- ${RULES[n]}`).join('\n')}
+${FORMAT}
 ${CTA}
 Réponds UNIQUEMENT en JSON : {${targets.map((n) => `"${n}":"..."`).join(',')}}
 Post LinkedIn :
