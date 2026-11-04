@@ -36,13 +36,15 @@ export const NETWORKS_BY_FORMAT: Record<Format, string[]> = {
 
 // Règles d'adaptation données à Gemini, réseau par réseau.
 const RULES: Record<string, string> = {
-  x: "X : même texte, resserré si possible. Le découpage en thread est automatique : ne numérote pas, n'écris pas « thread », pas de hashtag. Remplace un CTA « commente … » par « Réponds « MOT » et je te l'envoie ».",
-  instagram: "Instagram (légende de Reel ou d'image) : 3 à 8 lignes maximum, l'accroche d'abord, CTA « Écris-moi « MOT » en message privé », puis 5 hashtags pertinents en français à la fin.",
-  facebook: "Facebook (page) : même texte que LinkedIn, ton un peu plus conversationnel, CTA « Écris-moi « MOT » en message privé » à la place d'un « commente ».",
-  youtube: "YouTube (Short) : première ligne = titre de 100 caractères maximum, sans emoji en début ; ligne vide ; description de 2 à 4 phrases ; 3 hashtags dont #shorts.",
+  x: "X : même texte, resserré si possible. Le découpage en thread est automatique : ne numérote pas, n'écris pas « thread », pas de hashtag.",
+  instagram: "Instagram (légende) : 2 200 caractères maximum. Garde le texte et sa structure, raccourcis seulement si nécessaire (l'accroche en premier), puis 5 hashtags pertinents en français à la fin.",
+  facebook: "Facebook (page) : même texte que LinkedIn, ton un peu plus conversationnel si besoin.",
+  youtube: "YouTube : première ligne = titre de 100 caractères maximum, sans emoji en début ; ligne vide ; description de 2 à 4 phrases ; 3 hashtags.",
   tiktok: 'TikTok : légende de 150 caractères maximum, accroche + 3 hashtags.',
-  substack: 'Substack (Note) : 300 caractères maximum, une idée forte, pas de hashtag.',
+  substack: 'Substack (Note) : 300 caractères maximum, l\'idée la plus forte du post, avec sa voix, pas de hashtag.',
 }
+// Appel à l'action : seulement s'il existe déjà dans le post (jamais inventé).
+const CTA = "Appel à l'action : uniquement si le post d'origine en a un. Un « commente … » (qui ne marche que sur LinkedIn) devient « Réponds « MOT » » sur X et « Écris-moi « MOT » en message privé » sur Instagram et Facebook. Sinon, n'en ajoute AUCUN et ne promets rien (ressource, pistes, guide) que le texte ne contient pas."
 
 export function suggestNetworks(format: string, hasImage: boolean): string[] {
   const nets = NETWORKS_BY_FORMAT[(FORMATS as readonly string[]).includes(format) ? (format as Format) : 'texte']
@@ -59,6 +61,7 @@ export async function generateVariants(db: Db, id: string): Promise<Record<strin
 Format du post : ${p.format}. Change le MOINS possible : même voix, même personne grammaticale (si le post dit « tu », garde « tu »), même structure, mêmes phrases quand elles conviennent déjà au réseau. Tu adaptes seulement la longueur et l'appel à l'action. N'ajoute JAMAIS de morale, de conclusion ni d'appel à l'action si le post d'origine n'en a pas : la chute reste la dernière phrase. Tutoiement, phrases courtes, zéro jargon corporate, aucun chiffre inventé ni ajouté.
 Règles par réseau :
 ${targets.map((n) => `- ${RULES[n]}`).join('\n')}
+${CTA}
 Réponds UNIQUEMENT en JSON : {${targets.map((n) => `"${n}":"..."`).join(',')}}
 Post LinkedIn :
 ${p.body}`)
