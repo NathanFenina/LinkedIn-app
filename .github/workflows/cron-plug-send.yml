@@ -19,7 +19,8 @@ jobs:
         env:
           APP_URL: https://plug-decupler.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: curl -s -m 290 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-publish" || true
+        run: |
+          curl -s -m 290 -X POST -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/plug-publish" || true
       - name: Drain queue
         env:
           APP_URL: https://plug-decupler.vercel.app
