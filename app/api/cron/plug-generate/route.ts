@@ -5,13 +5,14 @@
 //   convs      → relances (mon message sans réponse) + réponses reçues à traiter
 //   x          → posts X à commenter
 //   missions   → posts LinkedIn de missions freelance
+//   jobs       → offres : LinkedIn Jobs, Free-Work (100 % télétravail), Collective.work
 //   comments   → posts LinkedIn à commenter (visibilité)
 //   fb         → posts de groupes Facebook BTP qui expriment un besoin (Apify, lecture seule)
 //   stats      → statistiques des posts publiés via PLUG Publish
 // Rien n'est envoyé ici. Auth: header "Authorization: Bearer ${CRON_SECRET}".
 
 import { getServerSupabase } from '@/lib/supabase'
-import { generateConversations, generateEngagers, generateLinkedInPosts, generateXReplies, promoteAcceptedInvites } from '@/lib/plug'
+import { generateConversations, generateEngagers, generateJobBoards, generateLinkedInPosts, generateXReplies, promoteAcceptedInvites } from '@/lib/plug'
 import { findReplyTargets } from '@/lib/x'
 import { generateFbGroups, refreshStats } from '@/lib/plug-publish'
 
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
         return Response.json({ part, found, added: await generateXReplies(db) })
       }
       case 'missions': return Response.json({ part, added: await generateLinkedInPosts(db, 'missions') })
+      case 'jobs': return Response.json({ part, ...(await generateJobBoards(db)) })
       case 'comments': return Response.json({ part, added: await generateLinkedInPosts(db, 'comments') })
       case 'fb': return Response.json({ part, ...(await generateFbGroups(db)) })
       case 'stats': return Response.json({ part, refreshed: await refreshStats(db) })

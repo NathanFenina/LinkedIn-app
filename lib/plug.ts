@@ -144,6 +144,19 @@ export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: n
   }
 }
 
+// Envoie jusqu'à `max` actions en file dans le même appel, espacées de ~100 s
+// (crons Vercel quotidiens : chaque passage vide un peu la file).
+export async function drainQueue(db: Db, max = 2): Promise<Array<Awaited<ReturnType<typeof sendNextQueued>>>> {
+  const out = []
+  for (let i = 0; i < max; i++) {
+    const r = await sendNextQueued(db)
+    out.push(r)
+    if (!r.remaining || r.error) break
+    await new Promise((res) => setTimeout(res, (MIN_GAP_SEC + 10 + Math.floor(Math.random() * 20)) * 1000))
+  }
+  return out
+}
+
 // ---------------- Générateur : engageurs ----------------
 
 type EngagerResearch = {
@@ -212,29 +225,63 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
       meta: { question: r.question, brands, site: r.site, brand_cited: !!r.brand_cited },
     }
     if (firstDegree) await upsertAction(db, { ...base, type: 'engager_dm', message })
-    else await upsertAction(db, { ...base, type: 'engager_invite', message: null, template_key: 'INV_sans_note', meta: { ...base.meta, later_message: `Merci d'avoir accepté mon invitation ! ${message}` } })
+    // 2e degré : invitation sans note envoyée automatiquement (choix de Nathan) ;
+    // la carte revient avec un message une fois l'invitation acceptée.
+    else await upsertAction(db, { ...base, type: 'engager_invite', status: 'queued', message: null, template_key: 'INV_sans_note', meta: { ...base.meta, sujet: post } })
     added++
   }
   return { added, skipped, checked }
 }
 
 // Invitations PLUG acceptées → message personnalisé prêt (1er degré).
-export async function promoteAcceptedInvites(db: Db, limit = 10): Promise<number> {
+// Message après acceptation : deux versions testées en alternance (A/B) —
+// ACC_question (où en êtes-vous sur le SEO ?) et ACC_video (3 leviers + vidéo).
+async function acceptedMessage(db: Db, seed: string, vars: Record<string, string>): Promise<{ text: string; key: string }> {
+  const { data } = await db.from('plug_templates').select('key, body').in('key', ['ACC_question', 'ACC_video']).eq('active', true)
+  const tpls = (data || []).sort((a, b) => a.key.localeCompare(b.key))
+  if (!tpls.length) return { text: '', key: '' }
+  const h = [...seed].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7)
+  const t = tpls[h % tpls.length]
+  return { text: fill(t.body, vars).replace(/ « » /g, ' ').replace(/ sur mon post « »/g, ' sur mon post'), key: t.key }
+}
+
+// Invitations acceptées → message prêt (1er degré). Couvre les invitations PLUG
+// et les invitations « Engageurs » envoyées avant PLUG (outreach_targets invited).
+export async function promoteAcceptedInvites(db: Db, limit = 25): Promise<number> {
   const since = new Date(Date.now() - 86400000).toISOString()
   const { data: rows } = await db.from('plug_actions').select('*').eq('type', 'engager_invite').eq('status', 'sent').lt('sent_at', since).limit(limit)
-  if (!rows?.length) return 0
+  const { data: camps } = await db.from('outreach_campaigns').select('id').in('name', ENGAGER_CAMPAIGNS)
+  const { data: legacy } = await db.from('outreach_targets').select('id, name, headline, company, profile_url, public_identifier, provider_id, chat_id, context, score')
+    .in('campaign_id', (camps || []).map((c) => c.id)).eq('status', 'invited').lt('invited_at', since).order('invited_at', { ascending: true }).limit(limit)
   const acc = await getActiveAccountId()
+  type Cand = { kind: 'plug' | 'legacy'; row: Record<string, unknown> }
+  const cands: Cand[] = [...(rows || []).map((r) => ({ kind: 'plug' as const, row: r })), ...(legacy || []).map((r) => ({ kind: 'legacy' as const, row: r }))]
   let n = 0
-  for (const a of rows) {
+  for (const c of cands.slice(0, limit)) {
+    const r = c.row
+    const providerId = String(r.provider_id || '')
+    if (!providerId) continue
     try {
       const g = await guard(db, acc, 'profile_view')
       if (!g.allowed) break
-      const p = await getUserProfile(acc, a.provider_id)
+      const p = await getUserProfile(acc, providerId)
       const first = p.is_relationship === true || /FIRST|DISTANCE_1/i.test(p.network_distance || '')
       if (!first) continue
-      const later = String((a.meta as Record<string, unknown>)?.later_message || '')
-      await upsertAction(db, { ...stripId(a), type: 'engager_dm', status: 'todo', title: '✅ Invitation acceptée — message prêt', tag: null, dedupe_key: `engager-dm:${a.target_id || a.provider_id}`, message: later, template_key: (a.meta as Record<string, unknown>)?.brand_cited ? 'B_marque_citee' : 'B_concurrent', sent_at: null })
-      await db.from('plug_actions').update({ status: 'done', updated_at: new Date().toISOString() }).eq('id', a.id)
+      const targetId = String(c.kind === 'plug' ? r.target_id || '' : r.id)
+      const name = String(c.kind === 'plug' ? r.person_name || '' : r.name || '')
+      const meta = (c.kind === 'plug' ? (r.meta as Record<string, unknown>) : {}) || {}
+      const sujet = String(meta.sujet || (c.kind === 'legacy' ? r.context || '' : '')).slice(0, 80)
+      const marque = String((c.kind === 'plug' ? r.company : r.company) || 'votre entreprise')
+      const m = await acceptedMessage(db, providerId, { prenom: firstName(name), sujet, marque })
+      await upsertAction(db, {
+        type: 'engager_dm', status: 'todo', dedupe_key: `engager-dm:${targetId || providerId}`, target_id: targetId || null,
+        person_name: name, headline: (r.headline as string) || null, company: marque,
+        profile_url: (r.profile_url as string) || (r.public_identifier ? `https://www.linkedin.com/in/${r.public_identifier}` : `https://www.linkedin.com/in/${providerId}`),
+        provider_id: providerId, chat_id: (r.chat_id as string) || null, score: (r.score as number) ?? null,
+        title: '✅ Invitation acceptée — message prêt', context: (r.context as string) || null, message: m.text, template_key: m.key || null, meta,
+      })
+      if (c.kind === 'plug') await db.from('plug_actions').update({ status: 'done', updated_at: new Date().toISOString() }).eq('id', r.id as string)
+      else await db.from('outreach_targets').update({ status: 'connected', connected_at: new Date().toISOString() }).eq('id', r.id as string)
       n++
     } catch { /* profil illisible : on réessaiera */ }
   }
@@ -404,6 +451,7 @@ ${list}`
       title: part === 'missions' ? k.title || 'Mission' : k.summary || null,
       context: (p.text || '').slice(0, 700), score: part === 'missions' ? k.score ?? null : p.reaction_counter ?? null,
       message: part === 'missions' ? k.why || null : k.comment || null,
+      meta: part === 'missions' ? { source: 'LinkedIn posts' } : {},
     })
     if (ok) n++
   }
@@ -425,4 +473,77 @@ export async function summary(db: Db) {
   const { count: repliesWeek } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).gte('replied_at', weekAgo)
   const { count: accepted } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).eq('status', 'todo').like('dedupe_key', 'engager-dm:%')
   return { todo, total_todo: Object.values(todo).reduce((s, v) => s + v, 0), queued, sent_week: sentWeek || 0, replies_week: repliesWeek || 0, invitations_acceptees_a_traiter: accepted || 0 }
+}
+
+// ---------------- Générateur : offres de missions (job boards) ----------------
+// LinkedIn Jobs (sans filtre remote), Free-Work (télétravail 100 % uniquement)
+// et Collective.work. Une seule passe Gemini trie et note le tout.
+
+const JOB_KEYWORDS = ['consultant SEO', 'SEO freelance', 'consultant GEO', 'ingénieur IA', 'AI engineer', 'expert IA', 'développeur IA agents']
+const BOARD_KEYWORDS = ['SEO', 'GEO', 'IA', 'agent IA']
+
+type JobCand = { source: string; title: string; client: string; url: string; extra: string }
+
+async function boardLinks(url: string, pattern: RegExp, source: string): Promise<JobCand[]> {
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PLUG-veille/1.0)', 'Accept-Language': 'fr-FR' } })
+  if (!res.ok) return []
+  const html = await res.text()
+  const out: JobCand[] = []
+  const re = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) && out.length < 40) {
+    const href = m[1]
+    if (!pattern.test(href)) continue
+    const text = m[2].replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
+    if (text.length < 6) continue
+    const abs = href.startsWith('http') ? href : new URL(href, url).toString()
+    if (!out.some((o) => o.url === abs)) out.push({ source, title: text.slice(0, 160), client: '', url: abs, extra: '' })
+  }
+  return out
+}
+
+export async function generateJobBoards(db: Db): Promise<{ candidates: number; added: number }> {
+  const acc = await getActiveAccountId()
+  const cands: JobCand[] = []
+  for (const kw of JOB_KEYWORDS) {
+    try {
+      const url = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(kw)}&f_JT=C&f_TPR=r604800&location=France`
+      const { items } = await searchLinkedIn<Record<string, unknown>>(acc, { url, limit: 25 } as never)
+      for (const it of items) {
+        const company = (it.company as Record<string, unknown>)?.name || it.company_name || it.company || ''
+        const id = it.id || it.job_id
+        const link = String(it.url || it.job_url || it.share_url || (id ? `https://www.linkedin.com/jobs/view/${id}` : ''))
+        if (link) cands.push({ source: 'LinkedIn offres', title: String(it.title || ''), client: String(company), url: link, extra: String(it.location || '') })
+      }
+    } catch { /* mot-clé suivant */ }
+  }
+  for (const kw of BOARD_KEYWORDS) {
+    try { cands.push(...await boardLinks(`https://www.free-work.com/fr/tech-it/jobs?query=${encodeURIComponent(kw)}&contracts=contractor&remote=full`, /\/job-mission\//, 'Free-Work (100 % télétravail)')) } catch { /* suivant */ }
+    try { cands.push(...await boardLinks(`https://www.collective.work/jobs/fr?search=${encodeURIComponent(kw)}`, /\/jobs\/fr\/[a-z0-9-]+-[a-z0-9]{4}$/i, 'Collective.work')) } catch { /* suivant */ }
+  }
+  const uniq = new Map<string, JobCand>()
+  for (const c of cands) if (c.url && !uniq.has(c.url)) uniq.set(c.url, c)
+  const fresh: JobCand[] = []
+  for (const c of uniq.values()) {
+    const { data } = await db.from('plug_actions').select('id').eq('url', c.url).maybeSingle()
+    if (!data) fresh.push(c)
+  }
+  if (!fresh.length) return { candidates: uniq.size, added: 0 }
+  const list = fresh.slice(0, 80).map((c, i) => `#${i} | ${c.source} | ${c.title} | ${c.client} | ${c.extra}`).join('\n')
+  const picked = parseJson<Array<{ i: number; title?: string; client?: string; mode?: string; score?: number; why?: string }>>(await geminiCall(`Tu tries des offres de missions pour Nathan Fenina, consultant SEO/GEO senior, expert Claude Code et automatisation IA. Métiers visés : consultant SEO / SEO-GEO senior, visibilité IA / GEO, automatisation de contenu SEO par IA, ingénieur IA, expert IA (Claude), agents IA. Aucun filtre de TJM. Garde UNIQUEMENT les missions freelance / contrat pertinentes (pas de CDI pur, pas d'annotation de données pour l'IA, jamais Codeur.com). Pour chacune : intitulé court, client si connu, mode (remote / hybride / sur site si indiqué), score /100 vs le profil, 1 phrase de pourquoi.
+Réponds UNIQUEMENT en JSON : [{"i":0,"title":"","client":"","mode":"","score":70,"why":""}]
+Offres :
+${list}`)) || []
+  let added = 0
+  for (const k of picked) {
+    const c = fresh[k.i]
+    if (!c) continue
+    const ok = await upsertAction(db, {
+      type: 'mission', dedupe_key: `job:${c.url}`, url: c.url, person_name: k.client || c.client || null, headline: c.source,
+      title: k.title || c.title, context: [k.mode, c.extra].filter(Boolean).join(' · ') || null, score: k.score ?? null, message: k.why || null,
+      meta: { source: c.source },
+    })
+    if (ok) added++
+  }
+  return { candidates: uniq.size, added }
 }

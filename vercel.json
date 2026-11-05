@@ -72,6 +72,46 @@
     {
       "path": "/api/cron/plug-publish?slot=3",
       "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=1",
+      "schedule": "40 7 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=2",
+      "schedule": "40 8 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=3",
+      "schedule": "40 9 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=4",
+      "schedule": "40 10 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=5",
+      "schedule": "40 12 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=6",
+      "schedule": "40 13 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=7",
+      "schedule": "40 14 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=8",
+      "schedule": "40 15 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-send?n=2&slot=9",
+      "schedule": "40 16 * * 1-5"
+    },
+    {
+      "path": "/api/cron/plug-generate?part=jobs",
+      "schedule": "50 4 * * 2,4"
     }
   ]
 }

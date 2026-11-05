@@ -11,7 +11,7 @@ interface Action {
   id: string; type: string; status: string; tag: string | null
   person_name: string | null; headline: string | null; company: string | null
   profile_url: string | null; title: string | null; context: string | null; url: string | null
-  score: number | null; message: string | null; template_key: string | null
+  score: number | null; message: string | null; template_key: string | null; meta?: Record<string, unknown> | null
   note: string | null; error: string | null; sent_at: string | null; replied_at: string | null; reply_text: string | null; created_at: string
 }
 
@@ -39,6 +39,7 @@ export default function PlugPage() {
   const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState<Record<string, string>>({})
+  const [source, setSource] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState('')
 
@@ -104,11 +105,19 @@ export default function PlugPage() {
         ))}
       </div>
       {type && <p className="text-xs text-gray-500 mb-3">{TYPES.find((t) => t.key === type)?.hint}</p>}
+      {type === 'mission' && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {['', 'LinkedIn posts', 'LinkedIn offres', 'Free-Work (100 % télétravail)', 'Collective.work'].map((src) => {
+            const n = src ? actions.filter((a) => String(a.meta?.source || 'LinkedIn posts') === src).length : actions.length
+            return <button key={src || 'all'} onClick={() => setSource(src)} className={`px-2.5 py-1 rounded-lg text-xs border ${source === src ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>{src || 'Toutes les sources'} ({n})</button>
+          })}
+        </div>
+      )}
       {err && <div className="mb-3 p-2 rounded bg-red-50 text-red-700 text-sm">{err}</div>}
       {!actions.length && <div className="p-8 text-center text-sm text-gray-400 border border-dashed rounded-xl">Rien ici pour l’instant.</div>}
 
       <div className="space-y-3">
-        {actions.map((a) => {
+        {actions.filter((a) => type !== 'mission' || !source || String(a.meta?.source || 'LinkedIn posts') === source).map((a) => {
           const t = TYPES.find((x) => x.key === a.type)
           const sendable = SENDABLE.includes(a.type)
           const msg = drafts[a.id] ?? a.message ?? ''
@@ -116,7 +125,7 @@ export default function PlugPage() {
             <div key={a.id} className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] text-gray-400">{t?.label || a.type}{a.score != null ? ` · ${a.type === 'mission' ? `score ${a.score}/100` : a.type === 'lk_comment' ? `${a.score} réactions` : `note ${a.score}`}` : ''}{a.tag ? ` · ${a.tag}` : ''}</div>
+                  <div className="text-[11px] text-gray-400">{t?.label || a.type}{a.type === 'mission' ? ` · ${String(a.meta?.source || 'LinkedIn posts')}` : ''}{a.score != null ? ` · ${a.type === 'mission' ? `score ${a.score}/100` : a.type === 'lk_comment' ? `${a.score} réactions` : `note ${a.score}`}` : ''}{a.tag ? ` · ${a.tag}` : ''}</div>
                   <div className="font-semibold text-gray-900 truncate">
                     {a.profile_url ? <a href={a.profile_url} target="_blank" rel="noreferrer" className="hover:underline">{a.person_name || 'Profil'}</a> : a.person_name || a.title}
                   </div>

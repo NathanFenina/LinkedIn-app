@@ -4,16 +4,18 @@
 // Auth: header "Authorization: Bearer ${CRON_SECRET}".
 
 import { getServerSupabase } from '@/lib/supabase'
-import { sendNextQueued } from '@/lib/plug'
+import { drainQueue } from '@/lib/plug'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(request: Request) {
   const secret = process.env.CRON_SECRET
   if (secret && request.headers.get('authorization') !== `Bearer ${secret}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  return Response.json(await sendNextQueued(getServerSupabase()))
+  const n = Math.min(2, Number(new URL(request.url).searchParams.get('n') || '1'))
+  const runs = await drainQueue(getServerSupabase(), n)
+  return Response.json({ ...runs[runs.length - 1], sent: runs.reduce((s, r) => s + r.sent, 0), runs })
 }
 
 export const GET = POST
