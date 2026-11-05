@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
-import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Share2, AtSign, Inbox, Library, CalendarDays, Plug, BarChart3, Radar } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { MessageSquare, Users, Eye, FileText, Link as LinkIcon, Target, Briefcase, Magnet, UserPlus2, Zap, BookOpen, MessageCircle, Send, FileSearch, Gauge, ChevronDown, Share2, AtSign, Inbox, Library, CalendarDays, Plug, BarChart3, Radar, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountSwitcher } from './AccountSwitcher'
 import { LimitsBadge } from './LimitsBadge'
@@ -20,6 +20,7 @@ type Item = NavItem & { secondary?: boolean }
 
 const NAV: Item[] = [
   // — Primaire : 8 onglets, 3 groupes clairs —
+  { href: '/plug/notifications', label: 'Notifications', icon: Bell, group: 'PILOTER' },
   { href: '/plug', label: 'À valider', icon: Inbox, group: 'PILOTER' },
   { href: '/plug/calendar', label: 'Calendrier', icon: CalendarDays, group: 'PILOTER' },
   { href: '/plug/veille', label: 'Veille', icon: Radar, group: 'PILOTER' },
@@ -51,6 +52,15 @@ const PRIMARY_GROUPS = ['PILOTER', 'PROSPECTER', 'GÉRER'] as const
 export function Sidebar() {
   const pathname = usePathname()
   const [showMore, setShowMore] = useState(false)
+  const [unread, setUnread] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const load = () => fetch('/api/cockpit/notes').then((x) => x.json()).then((r) => { if (alive) setUnread((r.unread || []).length) }).catch(() => {})
+    load()
+    const t = setInterval(load, 120000)
+    window.addEventListener('plug-notes', load)
+    return () => { alive = false; clearInterval(t); window.removeEventListener('plug-notes', load) }
+  }, [pathname])
 
   const linkClass = (href: string) => {
     const active = href === '/' || href === '/plug' ? pathname === href : pathname.startsWith(href)
@@ -83,6 +93,7 @@ export function Sidebar() {
               <Link key={href} href={href} className={linkClass(href)}>
                 <Icon className="w-4 h-4" />
                 {label}
+                {href === '/plug/notifications' && unread > 0 && <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">{unread}</span>}
               </Link>
             ))}
           </div>

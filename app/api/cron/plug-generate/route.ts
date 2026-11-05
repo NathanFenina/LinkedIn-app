@@ -9,12 +9,15 @@
 //   comments   → posts LinkedIn à commenter (visibilité)
 //   fb         → posts de groupes Facebook BTP qui expriment un besoin (Apify, lecture seule)
 //   stats      → statistiques des posts publiés via PLUG Publish
+//   report_week / report_month → bilan KPI (notification dans PLUG)
+// Chaque partie qui ajoute des éléments crée une notification dans PLUG (cloche).
 // Rien n'est envoyé ici. Auth: header "Authorization: Bearer ${CRON_SECRET}".
 
 import { getServerSupabase } from '@/lib/supabase'
 import { generateConversations, generateEngagers, generateJobBoards, generateLinkedInPosts, generateXReplies, promoteAcceptedInvites } from '@/lib/plug'
 import { findReplyTargets } from '@/lib/x'
 import { generateFbGroups, refreshStats } from '@/lib/plug-publish'
+import { kpiReport, notifyPart } from '@/lib/plug-notify'
 
 export const maxDuration = 300
 
@@ -26,21 +29,26 @@ export async function POST(request: Request) {
   const part = new URL(request.url).searchParams.get('part') || ''
   const db = getServerSupabase()
   try {
+    let out: Record<string, unknown>
     switch (part) {
-      case 'engagers': return Response.json({ part, ...(await generateEngagers(db, 8)) })
-      case 'accepted': return Response.json({ part, promoted: await promoteAcceptedInvites(db) })
-      case 'convs': return Response.json({ part, ...(await generateConversations(db)) })
+      case 'engagers': out = { ...(await generateEngagers(db, 8)) }; break
+      case 'accepted': out = { promoted: await promoteAcceptedInvites(db) }; break
+      case 'convs': out = { ...(await generateConversations(db)) }; break
       case 'x': {
         const found = await findReplyTargets(db, { count: 10 }).catch((e) => ({ error: String(e) }))
-        return Response.json({ part, found, added: await generateXReplies(db) })
+        out = { found, added: await generateXReplies(db) }; break
       }
-      case 'missions': return Response.json({ part, added: await generateLinkedInPosts(db, 'missions') })
-      case 'jobs': return Response.json({ part, ...(await generateJobBoards(db)) })
-      case 'comments': return Response.json({ part, added: await generateLinkedInPosts(db, 'comments') })
-      case 'fb': return Response.json({ part, ...(await generateFbGroups(db)) })
-      case 'stats': return Response.json({ part, refreshed: await refreshStats(db) })
+      case 'missions': out = { added: await generateLinkedInPosts(db, 'missions') }; break
+      case 'jobs': out = { ...(await generateJobBoards(db)) }; break
+      case 'comments': out = { added: await generateLinkedInPosts(db, 'comments') }; break
+      case 'fb': out = { ...(await generateFbGroups(db)) }; break
+      case 'stats': out = { refreshed: await refreshStats(db) }; break
+      case 'report_week': out = { note: await kpiReport(db, 'week') }; break
+      case 'report_month': out = { note: await kpiReport(db, 'month') }; break
       default: return Response.json({ error: 'part inconnue' }, { status: 400 })
     }
+    await notifyPart(db, part, out)
+    return Response.json({ part, ...out })
   } catch (err) {
     return Response.json({ part, error: String(err).slice(0, 400) }, { status: 500 })
   }

@@ -112,6 +112,14 @@
     {
       "path": "/api/cron/plug-generate?part=jobs",
       "schedule": "50 4 * * 2,4"
+    },
+    {
+      "path": "/api/cron/plug-generate?part=report_week",
+      "schedule": "15 6 * * 1"
+    },
+    {
+      "path": "/api/cron/plug-generate?part=report_month",
+      "schedule": "25 6 1 * *"
     }
   ]
 }
