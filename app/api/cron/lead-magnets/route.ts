@@ -435,7 +435,8 @@ async function sendOne(
         if (campaign.skip_if_replied && ((c as { reply_counter?: number }).reply_counter || 0) > 0) { sentSet.add(providerId); continue }
         // Avec un PS workshop séparé, seul « ne plus contacter » bloque : la ressource
         // part toujours, le PS workshop seulement si jamais invité.
-        if (campaign.workshop_ps?.trim() ? await isDoNotContact(db, providerId) : await alreadyInvitedOrBanned(db, providerId)) {
+        // skip_if_replied = false (« tout le monde reçoit la ressource ») : seul « ne plus contacter » bloque.
+        if (campaign.workshop_ps?.trim() || campaign.skip_if_replied === false ? await isDoNotContact(db, providerId) : await alreadyInvitedOrBanned(db, providerId)) {
           sentSet.add(providerId)
           await db.from('lead_magnet_sends').insert({
             campaign_id: campaign.id, commenter_provider_id: providerId, commenter_name: n.commenter_name,
