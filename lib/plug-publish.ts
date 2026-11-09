@@ -184,3 +184,52 @@ ${list}`)) || []
   }
   return { groups: (groups || []).length, posts: pool.length, added }
 }
+
+// ---------------- Profils Facebook BTP à ajouter (lecture seule) ----------------
+// Auteurs de posts récents dans les groupes BTP qui sont des artisans ou des
+// entreprises du bâtiment → cartes « Ajouter en ami » (Nathan clique lui-même :
+// aucun ajout automatique, interdit par Meta). Message prêt pour après l'acceptation.
+export async function generateFbPeople(db: Db, maxGroups = 4): Promise<{ groups: number; authors: number; added: number; error?: string }> {
+  const token = process.env.APIFY_TOKEN
+  if (!token) return { groups: 0, authors: 0, added: 0, error: 'APIFY_TOKEN manquant' }
+  const { data: groups } = await db.from('facebook_group_sources').select('*').eq('active', true).order('last_scraped_at', { ascending: true, nullsFirst: true }).limit(maxGroups)
+  const authors = new Map<string, { name: string; profile: string; text: string; group: string; url: string }>()
+  for (const g of groups || []) {
+    try {
+      const res = await fetch(`https://api.apify.com/v2/acts/${FB_ACTOR}/run-sync-get-dataset-items?token=${token}&timeout=120`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startUrls: [{ url: g.url }], resultsLimit: 30, viewOption: 'CHRONOLOGICAL', onlyPostsNewerThan: '14 days' }),
+      })
+      if (res.ok) for (const p of (await res.json()) as FbPost[]) {
+        const name = p.user?.name || p.authorName || ''
+        const profile = p.user?.profileUrl || (p.user?.id ? `https://www.facebook.com/${p.user.id}` : '')
+        if (name && profile && !authors.has(profile)) authors.set(profile, { name, profile, text: String(p.text || p.message || '').slice(0, 400), group: g.title || g.url, url: p.url || p.postUrl || '' })
+      }
+    } catch { /* groupe suivant */ }
+    await db.from('facebook_group_sources').update({ last_scraped_at: new Date().toISOString() }).eq('id', g.id)
+  }
+  const fresh = []
+  for (const a of authors.values()) {
+    const { data } = await db.from('plug_actions').select('id').eq('dedupe_key', `fbadd:${a.profile}`).maybeSingle()
+    if (!data) fresh.push(a)
+  }
+  if (!fresh.length) return { groups: (groups || []).length, authors: authors.size, added: 0 }
+  const list = fresh.slice(0, 60).map((a, i) => `#${i} | ${a.name} | ${a.group}\n${a.text.replace(/\n+/g, ' ')}`).join('\n\n')
+  const picked = parseJson<Array<{ i: number; metier: string; zone?: string; message: string }>>(await geminiCall(`Tu aides Nathan Fenina (consultant en visibilité Google et IA pour les artisans) à choisir des personnes à ajouter en ami sur Facebook.
+Garde UNIQUEMENT les auteurs qui sont des artisans ou des entreprises du bâtiment en activité (plombier, électricien, couvreur, maçon, peintre, menuisier, rénovation, paysagiste…), d'après leur post. Exclus les plateformes de mise en relation, les apporteurs d'affaires, les vendeurs de matériel ou de formations, les particuliers qui cherchent un artisan, les recruteurs.
+Pour chacun : le métier, la zone si elle est indiquée, et un message court à lui envoyer APRÈS l'acceptation de l'ami (tutoiement, 2 phrases, naturel, en lien avec son post, qui propose le test gratuit : regarder s'il sort sur Google et ChatGPT quand un particulier cherche son métier dans sa ville).
+Réponds UNIQUEMENT en JSON : [{"i":0,"metier":"","zone":"","message":""}]
+Auteurs :
+${list}`)) || []
+  let added = 0
+  for (const k of picked) {
+    const a = fresh[k.i]
+    if (!a) continue
+    const ok = await upsertAction(db, {
+      type: 'fb_add', dedupe_key: `fbadd:${a.profile}`, person_name: a.name, profile_url: a.profile, url: a.url || null,
+      headline: [k.metier, k.zone].filter(Boolean).join(' · ') || null, title: `Groupe : ${a.group}`, context: a.text, message: k.message,
+    })
+    if (ok) added++
+  }
+  return { groups: (groups || []).length, authors: authors.size, added }
+}

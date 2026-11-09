@@ -16,7 +16,7 @@
 import { getServerSupabase } from '@/lib/supabase'
 import { generateConversations, generateEngagers, generateJobBoards, generateLinkedInPosts, generateXReplies, promoteAcceptedInvites } from '@/lib/plug'
 import { findReplyTargets } from '@/lib/x'
-import { generateFbGroups, refreshStats } from '@/lib/plug-publish'
+import { generateFbGroups, generateFbPeople, refreshStats } from '@/lib/plug-publish'
 import { kpiReport, notifyPart } from '@/lib/plug-notify'
 
 export const maxDuration = 300
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
       case 'missions': out = { added: await generateLinkedInPosts(db, 'missions') }; break
       case 'jobs': out = { ...(await generateJobBoards(db)) }; break
       case 'comments': out = { added: await generateLinkedInPosts(db, 'comments') }; break
+      case 'fb_people': out = { ...(await generateFbPeople(db)) }; break
       case 'fb': out = { ...(await generateFbGroups(db)) }; break
       case 'stats': out = { refreshed: await refreshStats(db) }; break
       case 'report_week': out = { note: await kpiReport(db, 'week') }; break

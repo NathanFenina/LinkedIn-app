@@ -13,6 +13,7 @@ const LABELS: Record<string, { one: string; many: string; link: string }> = {
   missions: { one: 'mission (posts LinkedIn)', many: 'missions (posts LinkedIn)', link: '/plug' },
   jobs: { one: 'offre de mission', many: 'offres de mission', link: '/plug' },
   comments: { one: 'post LinkedIn à commenter', many: 'posts LinkedIn à commenter', link: '/plug' },
+  fb_people: { one: 'artisan Facebook à ajouter', many: 'artisans Facebook à ajouter', link: '/plug' },
   fb: { one: 'besoin repéré dans un groupe BTP', many: 'besoins repérés dans les groupes BTP', link: '/plug' },
 }
 

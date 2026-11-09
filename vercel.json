@@ -120,6 +120,10 @@
     {
       "path": "/api/cron/plug-generate?part=report_month",
       "schedule": "25 6 1 * *"
+    },
+    {
+      "path": "/api/cron/plug-generate?part=fb_people",
+      "schedule": "30 6 * * 1-5"
     }
   ]
 }
