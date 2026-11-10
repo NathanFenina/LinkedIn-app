@@ -120,7 +120,9 @@ export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: n
       const g = await guard(db, acc, 'invite')
       if (!g.allowed) return { sent: 0, wait: true, remaining, error: g.reason }
       if (!a.provider_id) throw new Error('provider_id manquant')
-      await sendLinkedInInvitation(acc, a.provider_id)
+      // Note d'invitation facultative (ex. « je t'envoie la ressource dès qu'on est connectés »).
+      const note = String(a.message || '').trim().slice(0, 300)
+      await sendLinkedInInvitation(acc, a.provider_id, note || undefined)
       if (a.target_id) await db.from('outreach_targets').update({ status: 'invited', invited_at: now }).eq('id', a.target_id)
     } else {
       const text = String(a.message || '').trim()
@@ -273,7 +275,10 @@ export async function promoteAcceptedInvites(db: Db, limit = 25): Promise<number
       const meta = (c.kind === 'plug' ? (r.meta as Record<string, unknown>) : {}) || {}
       const sujet = String(meta.sujet || (c.kind === 'legacy' ? r.context || '' : '')).slice(0, 80)
       const marque = String((c.kind === 'plug' ? r.company : r.company) || 'votre entreprise')
-      const m = await acceptedMessage(db, providerId, { prenom: firstName(name), sujet, marque })
+      // Message prévu à l'avance (ex. ressource promise + offre) sinon modèle A/B.
+      const m = typeof meta.after_accept === 'string' && meta.after_accept.trim()
+        ? { text: meta.after_accept, key: 'after_accept' }
+        : await acceptedMessage(db, providerId, { prenom: firstName(name), sujet, marque })
       await upsertAction(db, {
         type: 'engager_dm', status: 'todo', dedupe_key: `engager-dm:${targetId || providerId}`, target_id: targetId || null,
         person_name: name, headline: (r.headline as string) || null, company: marque,
