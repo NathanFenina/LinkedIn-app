@@ -14,6 +14,8 @@ export async function POST(request: Request) {
   }
   const { provider_ids } = (await request.json().catch(() => ({}))) as { provider_ids?: string[] }
   const wanted = new Set(provider_ids || [])
+  // ?full=1 → historique complet, textes non tronqués (pour rédiger une relance).
+  const full = url.searchParams.get('full') === '1'
   const acc = await getActiveAccountId()
 
   // provider_id → chat_id, en balayant les conversations.
@@ -44,7 +46,7 @@ export async function POST(request: Request) {
         received: theirs.length,
         last_at: sorted[0]?.timestamp || null,
         last_their_at: theirs.map((m) => m.timestamp).sort().pop() || null,
-        last: sorted.slice(0, 3).map((m) => `${m.is_sender === 1 || m.is_sender === true ? 'MOI' : 'LUI'} ${String(m.timestamp).slice(0, 10)}: ${(m.text || '').replace(/\s+/g, ' ').slice(0, 160)}`),
+        last: (full ? [...sorted].reverse() : sorted.slice(0, 3)).map((m) => `${m.is_sender === 1 || m.is_sender === true ? 'MOI' : 'LUI'} ${String(m.timestamp).slice(0, 16)}: ${full ? (m.text || '') : (m.text || '').replace(/\s+/g, ' ').slice(0, 160)}`),
       })
     } catch (err) {
       results.push({ provider_id: pid, chat_id: chatId, error: String(err).slice(0, 150) })
