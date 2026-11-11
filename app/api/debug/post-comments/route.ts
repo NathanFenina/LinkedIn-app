@@ -34,6 +34,16 @@ export async function GET(request: Request) {
       const rep = await unipileFetch(`/posts/${encodeURIComponent(socialId)}/comments?account_id=${encodeURIComponent(acc)}&comment_id=${encodeURIComponent(String(target.id))}&limit=20`)
       return Response.json({ comment: target.text, replies: ((rep.items || []) as Array<Record<string, unknown>>).map((r) => ({ author: r.author, text: r.text, date: r.date })) })
     }
+    // ?list=1 : liste compacte de tous les commentaires (auteur, titre, degré, texte).
+    if (url.searchParams.get('list') === '1') {
+      return Response.json({
+        social_id: socialId,
+        comments: all.map((c) => {
+          const d = (c.author_details || {}) as { id?: string; headline?: string; profile_url?: string; network_distance?: string; is_company?: boolean }
+          return { id: c.id, author: c.author, provider_id: d.id || null, headline: d.headline || null, profile_url: d.profile_url || null, distance: d.network_distance || null, is_company: !!d.is_company, text: c.text, date: c.date, replies: Number(c.reply_counter || 0) }
+        }),
+      })
+    }
     return Response.json({
       social_id: socialId,
       own_provider_id: me.provider_id || null,
