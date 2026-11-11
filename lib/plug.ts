@@ -1,7 +1,7 @@
 import { getServerSupabase } from './supabase'
 import { getActiveAccountId } from './account'
-import { getChatAttendees, getChatMessages, getChats, getUserProfile, searchLinkedIn, sendLinkedInInvitation, sendMessage, startNewChat } from './unipile'
-import { guard, logAction, MIN_GAP_SEC, secondsSinceLastSend } from './limits'
+import { getChatAttendees, getChatMessages, getChats, getUserProfile, handleInvitation, searchLinkedIn, sendLinkedInInvitation, sendMessage, sendPostComment, startNewChat } from './unipile'
+import { checkLimit, guard, logAction, MIN_GAP_SEC, secondsSinceLastSend, type ActionType as LimitType } from './limits'
 
 // ---------------------------------------------------------------------------
 // PLUG : une file unique d'actions à valider (page /plug).
@@ -23,9 +23,11 @@ export type ActionType =
   | 'mission' // mission freelance pour postuler (à la main)
   | 'fb_group' // post d'un groupe Facebook BTP (commenter / ajouter à la main)
   | 'fb_add' // artisan repéré dans un groupe : ajouter en ami (à la main), message après acceptation
+  | 'comment_reply' // réponse publique sous un commentaire (meta.social_id, meta.comment_id)
+  | 'accept_invite' // accepter une invitation reçue (meta.invitation_id, meta.shared_secret)
 
 // Types envoyés par PLUG (les autres = « Ouvrir » puis « Fait »).
-export const SENDABLE: ActionType[] = ['engager_dm', 'engager_invite', 'relance', 'reply']
+export const SENDABLE: ActionType[] = ['engager_dm', 'engager_invite', 'relance', 'reply', 'comment_reply', 'accept_invite']
 
 export const ENGAGER_CAMPAIGNS = ['Engageurs de mes posts', 'Engageurs — mes connexions']
 
@@ -94,17 +96,46 @@ export async function upsertAction(db: Db, a: Record<string, unknown> & { type: 
 
 // ---------------- Envoi (UNE action par appel) ----------------
 
+// Plafond LinkedIn concerné par chaque type d'action envoyée.
+function limitType(t: string): LimitType {
+  if (t === 'engager_invite') return 'invite'
+  if (t === 'comment_reply') return 'comment'
+  if (t === 'accept_invite') return 'accept'
+  return 'dm'
+}
+
+// Après un envoi réussi : libère les actions qui en dépendaient (meta.release_ids,
+// status 'waiting' → 'queued'), en tête de file.
+async function releaseDependents(db: Db, a: { meta: Record<string, unknown> | null }) {
+  const ids = ((a.meta as { release_ids?: string[] } | null)?.release_ids || []).filter(Boolean)
+  if (!ids.length) return
+  await db.from('plug_actions').update({ status: 'queued', updated_at: '2026-01-01T00:00:00Z' }).in('id', ids).eq('status', 'waiting')
+}
+
 export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: number; wait?: boolean; remaining: number; name?: string; error?: string; skipped?: string }> {
   const { count: remaining } = await db.from('plug_actions').select('id', { count: 'exact', head: true }).eq('status', 'queued')
   if (!remaining) return { sent: 0, remaining: 0 }
   if ((await secondsSinceLastSend(db)) < MIN_GAP_SEC) return { sent: 0, wait: true, remaining }
+  const acc = await getActiveAccountId()
+  // Première action en file dont le plafond du jour n'est pas atteint
+  // (un plafond plein, ex. invitations, ne bloque pas les autres types).
   let q = db.from('plug_actions').select('*').eq('status', 'queued')
   if (onlyId) q = q.eq('id', onlyId)
-  const { data: a } = await q.order('updated_at', { ascending: true }).limit(1).maybeSingle()
-  if (!a) return { sent: 0, remaining }
+  const { data: cands } = await q.order('updated_at', { ascending: true }).limit(60)
+  type QA = { id: string; type: string; provider_id: string | null; chat_id: string | null; message: string | null; target_id: string | null; tag: string | null; person_name: string | null; created_at: string; meta: Record<string, unknown> | null }
+  let a: QA | null = null
+  const blocked = new Map<string, string>()
+  for (const c of cands || []) {
+    const lt = limitType(c.type)
+    if (blocked.has(lt)) continue
+    const chk = await checkLimit(db, acc, lt)
+    if (chk.allowed) { a = c as QA; break }
+    blocked.set(lt, chk.reason || 'plafond')
+  }
+  if (!a) return { sent: 0, wait: true, remaining, error: [...blocked.values()][0] }
   // Garde-fou : si Nathan a déjà écrit à la main dans cette conversation ces
   // dernières heures, on n'envoie pas un second message.
-  if (a.chat_id && a.type !== 'engager_invite') {
+  if (a.chat_id && !['engager_invite', 'comment_reply', 'accept_invite'].includes(a.type)) {
     try {
       const last = ((await getChatMessages(a.chat_id, 3)) as Msg[]).sort((x, y) => String(y.timestamp).localeCompare(String(x.timestamp)))[0]
       if (last && isMine(last) && Date.now() - Date.parse(String(last.timestamp)) < 6 * 3600000 && Date.parse(String(last.timestamp)) > Date.parse(a.created_at)) {
@@ -113,33 +144,41 @@ export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: n
       }
     } catch { /* lecture impossible : on envoie quand même */ }
   }
-  const acc = await getActiveAccountId()
   const now = new Date().toISOString()
+  const meta = (a.meta || {}) as { social_id?: string; comment_id?: string; invitation_id?: string; shared_secret?: string }
   try {
     if (a.type === 'engager_invite') {
-      const g = await guard(db, acc, 'invite')
-      if (!g.allowed) return { sent: 0, wait: true, remaining, error: g.reason }
       if (!a.provider_id) throw new Error('provider_id manquant')
+      await logAction(db, acc, 'invite')
       // Note d'invitation facultative (ex. « je t'envoie la ressource dès qu'on est connectés »).
       const note = String(a.message || '').trim().slice(0, 300)
       await sendLinkedInInvitation(acc, a.provider_id, note || undefined)
       if (a.target_id) await db.from('outreach_targets').update({ status: 'invited', invited_at: now }).eq('id', a.target_id)
+    } else if (a.type === 'comment_reply') {
+      const text = String(a.message || '').trim()
+      if (!text || !meta.social_id || !meta.comment_id) throw new Error('Réponse : texte, social_id ou comment_id manquant')
+      await logAction(db, acc, 'comment')
+      await sendPostComment(acc, meta.social_id, text, meta.comment_id)
+    } else if (a.type === 'accept_invite') {
+      if (!meta.invitation_id) throw new Error('invitation_id manquant')
+      await logAction(db, acc, 'accept')
+      await handleInvitation(acc, meta.invitation_id, 'accept', meta.shared_secret || null)
     } else {
       const text = String(a.message || '').trim()
       if (!text) throw new Error('Message vide')
-      const g = await guard(db, acc, 'dm')
-      if (!g.allowed) return { sent: 0, wait: true, remaining, error: g.reason }
+      await logAction(db, acc, 'dm')
       let chatId = a.chat_id as string | null
       if (chatId) await sendMessage(chatId, text)
       else if (a.provider_id) {
         const r = (await startNewChat(acc, a.provider_id, text)) as { chat_id?: string; id?: string }
         chatId = r.chat_id || r.id || null
       } else throw new Error('Ni conversation ni provider_id')
-      await logAction(db, acc, 'dm')
       await db.from('plug_actions').update({ chat_id: chatId }).eq('id', a.id)
       if (a.target_id) await db.from('outreach_targets').update({ status: 'msg1_sent', last_sent_at: now, chat_id: chatId, variant: null }).eq('id', a.target_id)
     }
-    await db.from('plug_actions').update({ status: 'sent', sent_at: now, error: null, tag: a.tag || (a.type === 'engager_invite' ? 'Invitation envoyée' : 'Message envoyé'), updated_at: now }).eq('id', a.id)
+    const tag = a.tag || ({ engager_invite: 'Invitation envoyée', comment_reply: 'Commentaire publié', accept_invite: 'Invitation acceptée' } as Record<string, string>)[a.type] || 'Message envoyé'
+    await db.from('plug_actions').update({ status: 'sent', sent_at: now, error: null, tag, updated_at: now }).eq('id', a.id)
+    await releaseDependents(db, a)
     return { sent: 1, remaining: remaining - 1, name: a.person_name || undefined }
   } catch (err) {
     await db.from('plug_actions').update({ status: 'error', error: String(err).slice(0, 300), updated_at: now }).eq('id', a.id)
@@ -192,6 +231,10 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
     .in('campaign_id', ids).in('status', ['sourced', 'approved', 'connected']).order('score', { ascending: false }).limit(200)
   const { data: done } = await db.from('plug_actions').select('target_id').not('target_id', 'is', null)
   const seen = new Set((done || []).map((d) => d.target_id))
+  // Invitations automatiques aux engageurs 2e degré : coupables via app_settings
+  // (engager_auto_invite = 'false') → la carte attend alors la validation.
+  const { data: ai } = await db.from('app_settings').select('value').eq('key', 'engager_auto_invite').maybeSingle()
+  const autoInvite = String(ai?.value ?? 'true') !== 'false'
   const tplC = await getTemplate(db, 'B_concurrent')
   const tplM = await getTemplate(db, 'B_marque_citee')
   let added = 0, skipped = 0, checked = 0
@@ -230,7 +273,7 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
     if (firstDegree) await upsertAction(db, { ...base, type: 'engager_dm', message })
     // 2e degré : invitation sans note envoyée automatiquement (choix de Nathan) ;
     // la carte revient avec un message une fois l'invitation acceptée.
-    else await upsertAction(db, { ...base, type: 'engager_invite', status: 'queued', message: null, template_key: 'INV_sans_note', meta: { ...base.meta, sujet: post } })
+    else await upsertAction(db, { ...base, type: 'engager_invite', status: autoInvite ? 'queued' : 'todo', message: null, template_key: 'INV_sans_note', meta: { ...base.meta, sujet: post } })
     added++
   }
   return { added, skipped, checked }
@@ -280,7 +323,7 @@ export async function promoteAcceptedInvites(db: Db, limit = 25): Promise<number
         ? { text: meta.after_accept, key: 'after_accept' }
         : await acceptedMessage(db, providerId, { prenom: firstName(name), sujet, marque })
       await upsertAction(db, {
-        type: 'engager_dm', status: 'todo', dedupe_key: `engager-dm:${targetId || providerId}`, target_id: targetId || null,
+        type: 'engager_dm', status: meta.auto_send ? 'queued' : 'todo', dedupe_key: `engager-dm:${targetId || providerId}`, target_id: targetId || null,
         person_name: name, headline: (r.headline as string) || null, company: marque,
         profile_url: (r.profile_url as string) || (r.public_identifier ? `https://www.linkedin.com/in/${r.public_identifier}` : `https://www.linkedin.com/in/${providerId}`),
         provider_id: providerId, chat_id: (r.chat_id as string) || null, score: (r.score as number) ?? null,

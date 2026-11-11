@@ -20,7 +20,7 @@ export const CAPS: Record<ActionType, number> = {
   comment: 90, // 70 réponses JEV (commentaire seul) + « Envoyé en MP » des lead-magnets
   dm: 70, // 50 lead-magnets + 15 Séquenceur + marge (plafond propre aux lead-magnets dans le cron)
   invite: 15,
-  accept: 20,
+  accept: 90, // accepter des invitations reçues : risque faible
   profile_view: 120,
 }
 export const GLOBAL_CAP = 200
