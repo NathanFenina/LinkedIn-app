@@ -17,13 +17,13 @@ export const CAPS: Record<ActionType, number> = {
   // Partagé entre "commentaires auto" (posts prospects) ET les réponses
   // publiques des lead-magnets (« Envoyé en MP » / « ajoute-moi »). Monté à 50
   // pour que les deux cohabitent sans se bloquer.
-  comment: 90, // 70 réponses JEV (commentaire seul) + « Envoyé en MP » des lead-magnets
+  comment: 170, // réponses sous MES posts (campagne Opus) : risque faible, relevé le 12/11 pour finir la semaine
   dm: 70, // 50 lead-magnets + 15 Séquenceur + marge (plafond propre aux lead-magnets dans le cron)
-  invite: 15,
+  invite: 30,
   accept: 90, // accepter des invitations reçues : risque faible
   profile_view: 120,
 }
-export const GLOBAL_CAP = 200
+export const GLOBAL_CAP = 320
 
 export const ACTION_LABELS: Record<ActionType, string> = {
   comment: 'Commentaires',
