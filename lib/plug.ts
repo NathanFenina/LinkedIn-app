@@ -125,6 +125,11 @@ export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: n
   type QA = { id: string; type: string; provider_id: string | null; chat_id: string | null; message: string | null; target_id: string | null; tag: string | null; person_name: string | null; created_at: string; meta: Record<string, unknown> | null }
   let a: QA | null = null
   const blocked = new Map<string, string>()
+  // Préférence de Nathan : pas de messages privés le matin (avant 14 h, heure de
+  // Paris) pour les envois en file automatique. Commentaires, invitations et
+  // acceptations partent toute la journée. Un clic « Envoyer » (onlyId) passe.
+  const parisHour = Number(new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }).format(new Date()))
+  if (!onlyId && parisHour < 14) blocked.set('dm', 'messages privés seulement l’après-midi')
   for (const c of cands || []) {
     const lt = limitType(c.type)
     if (blocked.has(lt)) continue
