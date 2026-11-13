@@ -121,7 +121,7 @@ export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: n
   // (un plafond plein, ex. invitations, ne bloque pas les autres types).
   let q = db.from('plug_actions').select('*').eq('status', 'queued')
   if (onlyId) q = q.eq('id', onlyId)
-  const { data: cands } = await q.order('updated_at', { ascending: true }).limit(60)
+  const { data: cands } = await q.order('updated_at', { ascending: true }).limit(1000)
   type QA = { id: string; type: string; provider_id: string | null; chat_id: string | null; message: string | null; target_id: string | null; tag: string | null; person_name: string | null; created_at: string; meta: Record<string, unknown> | null }
   let a: QA | null = null
   const blocked = new Map<string, string>()
