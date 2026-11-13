@@ -18,7 +18,7 @@ export const CAPS: Record<ActionType, number> = {
   // publiques des lead-magnets (« Envoyé en MP » / « ajoute-moi »). Monté à 50
   // pour que les deux cohabitent sans se bloquer.
   comment: 60, // rythme régulier (choix de Nathan 13/11 : un peu chaque jour)
-  dm: 40, // messages privés l'après-midi seulement
+  dm: 55, // 40 en file auto + marge pour répondre aux demandes de ressource
   invite: 20,
   accept: 40,
   profile_view: 120,
