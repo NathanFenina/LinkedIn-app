@@ -240,11 +240,19 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
   // (engager_auto_invite = 'false') → la carte attend alors la validation.
   const { data: ai } = await db.from('app_settings').select('value').eq('key', 'engager_auto_invite').maybeSingle()
   const autoInvite = String(ai?.value ?? 'true') !== 'false'
+  // Envoi automatique des messages aux engageurs (choix de Nathan, 13/11) :
+  // app_settings.engager_auto_send = 'true' → carte mise en file directement.
+  const autoSend = await engagerAutoSend(db)
   const tplC = await getTemplate(db, 'B_concurrent')
   const tplM = await getTemplate(db, 'B_marque_citee')
   let added = 0, skipped = 0, checked = 0
   for (const t of targets || []) {
     if (seen.has(t.id) || !t.provider_id) continue
+    // Déjà contacté par PLUG ces 21 derniers jours (ex. campagne de post) : pas de doublon.
+    const { count: recent } = await db.from('plug_actions').select('id', { count: 'exact', head: true })
+      .eq('provider_id', t.provider_id).in('type', ['engager_dm', 'engager_invite', 'relance', 'reply'])
+      .in('status', ['queued', 'waiting', 'hold', 'sent']).gte('updated_at', new Date(Date.now() - 21 * 86400000).toISOString())
+    if (recent) continue
     if (checked >= limit) break
     checked++
     const profile = t.profile_url || `https://www.linkedin.com/in/${t.public_identifier || t.provider_id}`
@@ -275,7 +283,7 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
       template_key: r.brand_cited ? 'B_marque_citee' : 'B_concurrent',
       meta: { question: r.question, brands, site: r.site, brand_cited: !!r.brand_cited },
     }
-    if (firstDegree) await upsertAction(db, { ...base, type: 'engager_dm', message })
+    if (firstDegree) await upsertAction(db, { ...base, type: 'engager_dm', status: autoSend ? 'queued' : 'todo', message })
     // 2e degré : invitation sans note envoyée automatiquement (choix de Nathan) ;
     // la carte revient avec un message une fois l'invitation acceptée.
     else await upsertAction(db, { ...base, type: 'engager_invite', status: autoInvite ? 'queued' : 'todo', message: null, template_key: 'INV_sans_note', meta: { ...base.meta, sujet: post } })
@@ -287,6 +295,11 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
 // Invitations PLUG acceptées → message personnalisé prêt (1er degré).
 // Message après acceptation : deux versions testées en alternance (A/B) —
 // ACC_question (où en êtes-vous sur le SEO ?) et ACC_video (3 leviers + vidéo).
+async function engagerAutoSend(db: Db): Promise<boolean> {
+  const { data } = await db.from('app_settings').select('value').eq('key', 'engager_auto_send').maybeSingle()
+  return String(data?.value ?? 'false') === 'true'
+}
+
 async function acceptedMessage(db: Db, seed: string, vars: Record<string, string>): Promise<{ text: string; key: string }> {
   const { data } = await db.from('plug_templates').select('key, body').in('key', ['ACC_question', 'ACC_video']).eq('active', true)
   const tpls = (data || []).sort((a, b) => a.key.localeCompare(b.key))
@@ -305,6 +318,7 @@ export async function promoteAcceptedInvites(db: Db, limit = 25): Promise<number
   const { data: legacy } = await db.from('outreach_targets').select('id, name, headline, company, profile_url, public_identifier, provider_id, chat_id, context, score')
     .in('campaign_id', (camps || []).map((c) => c.id)).eq('status', 'invited').lt('invited_at', since).order('invited_at', { ascending: true }).limit(limit)
   const acc = await getActiveAccountId()
+  const autoSend = await engagerAutoSend(db)
   type Cand = { kind: 'plug' | 'legacy'; row: Record<string, unknown> }
   const cands: Cand[] = [...(rows || []).map((r) => ({ kind: 'plug' as const, row: r })), ...(legacy || []).map((r) => ({ kind: 'legacy' as const, row: r }))]
   let n = 0
@@ -322,13 +336,13 @@ export async function promoteAcceptedInvites(db: Db, limit = 25): Promise<number
       const name = String(c.kind === 'plug' ? r.person_name || '' : r.name || '')
       const meta = (c.kind === 'plug' ? (r.meta as Record<string, unknown>) : {}) || {}
       const sujet = String(meta.sujet || (c.kind === 'legacy' ? r.context || '' : '')).slice(0, 80)
-      const marque = String((c.kind === 'plug' ? r.company : r.company) || 'votre entreprise')
+      const marque = String((c.kind === 'plug' ? r.company : r.company) || 'ton entreprise')
       // Message prévu à l'avance (ex. ressource promise + offre) sinon modèle A/B.
       const m = typeof meta.after_accept === 'string' && meta.after_accept.trim()
         ? { text: meta.after_accept, key: 'after_accept' }
         : await acceptedMessage(db, providerId, { prenom: firstName(name), sujet, marque })
       await upsertAction(db, {
-        type: 'engager_dm', status: meta.auto_send ? 'queued' : 'todo', dedupe_key: `engager-dm:${targetId || providerId}`, target_id: targetId || null,
+        type: 'engager_dm', status: meta.auto_send || autoSend ? 'queued' : 'todo', dedupe_key: `engager-dm:${targetId || providerId}`, target_id: targetId || null,
         person_name: name, headline: (r.headline as string) || null, company: marque,
         profile_url: (r.profile_url as string) || (r.public_identifier ? `https://www.linkedin.com/in/${r.public_identifier}` : `https://www.linkedin.com/in/${providerId}`),
         provider_id: providerId, chat_id: (r.chat_id as string) || null, score: (r.score as number) ?? null,
