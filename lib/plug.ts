@@ -173,11 +173,18 @@ export async function sendNextQueued(db: Db, onlyId?: string): Promise<{ sent: n
       if (!text) throw new Error('Message vide')
       await logAction(db, acc, 'dm')
       let chatId = a.chat_id as string | null
-      if (chatId) await sendMessage(chatId, text)
-      else if (a.provider_id) {
-        const r = (await startNewChat(acc, a.provider_id, text)) as { chat_id?: string; id?: string }
-        chatId = r.chat_id || r.id || null
-      } else throw new Error('Ni conversation ni provider_id')
+      // Plusieurs bulles courtes (style WhatsApp) : parties séparées par une
+      // ligne « --- » dans le message, envoyées l'une après l'autre (~8 s).
+      const parts = text.split(/\n\s*-{3,}\s*\n/).map((x) => x.trim()).filter(Boolean)
+      for (let i = 0; i < parts.length; i++) {
+        if (i > 0) await new Promise((res) => setTimeout(res, 6000 + Math.floor(Math.random() * 5000)))
+        if (chatId) await sendMessage(chatId, parts[i])
+        else if (a.provider_id) {
+          const r = (await startNewChat(acc, a.provider_id, parts[i])) as { chat_id?: string; id?: string }
+          chatId = r.chat_id || r.id || null
+          if (!chatId) break
+        } else throw new Error('Ni conversation ni provider_id')
+      }
       await db.from('plug_actions').update({ chat_id: chatId }).eq('id', a.id)
       if (a.target_id) await db.from('outreach_targets').update({ status: 'msg1_sent', last_sent_at: now, chat_id: chatId, variant: null }).eq('id', a.target_id)
     }
@@ -245,6 +252,7 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
   const autoSend = await engagerAutoSend(db)
   const tplC = await getTemplate(db, 'B_concurrent')
   const tplM = await getTemplate(db, 'B_marque_citee')
+  const tplB = await getTemplate(db, 'B_bulles').catch(() => '')
   let added = 0, skipped = 0, checked = 0
   for (const t of targets || []) {
     if (seen.has(t.id) || !t.provider_id) continue
@@ -274,13 +282,17 @@ export async function generateEngagers(db: Db, limit = 8): Promise<{ added: numb
     const concurrents = brands.filter((b) => !isOwn(b)).slice(0, 2).join(' et ') || 'vos concurrents'
     const vars = { prenom: firstName(t.name), question: r.question || '', concurrents, marque }
     const firstDegree = !!t.connected_at
-    const message = fill(r.brand_cited ? tplM : tplC, vars)
+    // A/B : moitié « 3 quick wins » direct, moitié « 3 bulles » (sans offre au
+    // 1er message, l'offre vient après sa réponse) — clé B_bulles.
+    const hb = [...String(t.provider_id)].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7)
+    const useBulles = !!tplB && hb % 2 === 1
+    const message = fill(useBulles ? tplB : (r.brand_cited ? tplM : tplC), vars)
     const base = {
       dedupe_key: `engager:${t.id}`, target_id: t.id, person_name: t.name, headline: t.headline, company: marque,
       profile_url: profile, provider_id: t.provider_id, chat_id: t.chat_id, score: t.score,
       title: post ? `A commenté « ${post} »` : null,
       context: `Question : ${r.question || '?'}\nMarques qui ressortent : ${brands.join(', ') || '?'}${r.site ? `\nSite : ${r.site}` : ''}\n⚠️ Vérifie dans ChatGPT avant d'envoyer.`,
-      template_key: r.brand_cited ? 'B_marque_citee' : 'B_concurrent',
+      template_key: useBulles ? 'B_bulles' : (r.brand_cited ? 'B_marque_citee' : 'B_concurrent'),
       meta: { question: r.question, brands, site: r.site, brand_cited: !!r.brand_cited },
     }
     if (firstDegree) await upsertAction(db, { ...base, type: 'engager_dm', status: autoSend ? 'queued' : 'todo', message })
